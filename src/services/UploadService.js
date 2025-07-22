@@ -1,163 +1,121 @@
 // services/uploadService.js
 const { BlobServiceClient } = require('@azure/storage-blob');
 const { v4: uuidv4 } = require('uuid');
-const multipart = require('parse-multipart');
 const { ValidationError } = require('../middleware/errorHandler');
 
 class UploadService {
     constructor() {
         this.connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-        this.containerName ='arihaminsurance-media';
+        this.containerName = 'arihaminsurance-media';
         this.blobServiceClient = BlobServiceClient.fromConnectionString(this.connectionString);
         this.containerClient = this.blobServiceClient.getContainerClient(this.containerName);
     }
 
     // Initialize container
     async initializeContainer() {
-        console.log("new here");
+        console.log("Initializing container");
         await this.containerClient.createIfNotExists({
             access: 'blob' // Public read access for blobs only
         });
     }
 
-    // Parse multipart form data
-    parseMultipartData(req) {
-        if (!req.body || !req.headers['content-type']) {
-            throw new ValidationError('Request body or content-type missing');
-        }
-        
-        if (!req.headers['content-type'].includes('multipart')) {
-            throw new ValidationError('Content-Type must be multipart/form-data');
-        }
-
-        const bodyBuffer = Buffer.from(req.body);
-        const boundary = multipart.getBoundary(req.headers['content-type']);
-        const parts = multipart.Parse(bodyBuffer, boundary);
-        
-        if (!parts || parts.length === 0) {
-            throw new ValidationError('No files found in the request');
-        }
-
-        return parts;
-    }
-
-    // Generic file validation
-    validateFiles(parts, options = {}) {
+    // Validate raw file buffer instead of multipart data
+    validateRawFile(fileBuffer, filename, contentType, options = {}) {
         const {
             allowedTypes = [],
             maxFileSize = 10 * 1024 * 1024, // 10MB default
-            maxFiles = 10,
-            requiredKeywords = [],
-            filePrefix = 'file'
+            requiredKeywords = []
         } = options;
 
-        if (parts.length > maxFiles) {
-            throw new ValidationError(`Maximum ${maxFiles} files allowed`);
+        if (!filename) {
+            throw new ValidationError('Filename is required');
         }
 
-        for (const part of parts) {
-            // Check if file has a name
-            if (!part.filename) {
-                throw new ValidationError('All files must have a filename');
-            }
+        if (!fileBuffer || !Buffer.isBuffer(fileBuffer)) {
+            throw new ValidationError('Valid file buffer is required');
+        }
+
+        // Check file size
+        if (fileBuffer.length > maxFileSize) {
+            const sizeMB = Math.round(maxFileSize / (1024 * 1024));
+            throw new ValidationError(`File ${filename} exceeds maximum size of ${sizeMB}MB`);
+        }
+        // Check file type
+        if (allowedTypes.length > 0 && !allowedTypes.includes(contentType)) {
+            throw new ValidationError(`File ${filename} has unsupported type: ${contentType}. Allowed types: ${allowedTypes.join(', ')}`);
+        }
+
+        // Check filename length
+        if (filename.length > 255) {
+            throw new ValidationError(`Filename ${filename} is too long`);
+        }
+
+        // Check for required keywords (optional)
+        if (requiredKeywords.length > 0) {
+            const name = filename.toLowerCase();
+            const hasRequiredKeyword = requiredKeywords.some(keyword => 
+                name.includes(keyword.toLowerCase())
+            );
             
-            // Check file size
-            if (part.data.length > maxFileSize) {
-                const sizeMB = Math.round(maxFileSize / (1024 * 1024));
-                throw new ValidationError(`File ${part.filename} exceeds maximum size of ${sizeMB}MB`);
-            }
-            
-            // Check file type
-            if (allowedTypes.length > 0 && !allowedTypes.includes(part.type)) {
-                throw new ValidationError(`File ${part.filename} has unsupported type: ${part.type}. Allowed types: ${allowedTypes.join(', ')}`);
-            }
-            
-            // Check filename length
-            if (part.filename.length > 255) {
-                throw new ValidationError(`Filename ${part.filename} is too long`);
-            }
-            
-            // Check for required keywords (optional)
-            if (requiredKeywords.length > 0) {
-                const filename = part.filename.toLowerCase();
-                const hasRequiredKeyword = requiredKeywords.some(keyword => 
-                    filename.includes(keyword.toLowerCase())
-                );
-                
-                if (!hasRequiredKeyword) {
-                    throw new ValidationError(`File ${part.filename} doesn't contain required keywords: ${requiredKeywords.join(', ')}`);
-                }
+            if (!hasRequiredKeyword) {
+                throw new ValidationError(`File ${filename} doesn't contain required keywords: ${requiredKeywords.join(', ')}`);
             }
         }
     }
 
-    // Upload files to blob storage
-    async uploadFiles(parts, options = {}) {
-        const {
-            folderPath = 'general',
-            metadata = {},
-            filePrefix = 'file'
-        } = options;
+    // Upload raw file buffer to blob storage
+    async uploadRawFile(fileBuffer, filename, contentType, userId, folderPath = 'general', metadata = {}) {
+        try {
+            await this.initializeContainer();
 
-        await this.initializeContainer();
-        
-        const uploadedFiles = [];
-        
-        for (const part of parts) {
-            try {
-                // Generate a unique file name
-                const fileExtension = part.filename.split('.').pop();
-                const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-                const fileId = uuidv4();
-                const blobName = `${folderPath}/${timestamp}-${fileId}.${fileExtension}`;
-                
-                // Upload to Azure Blob Storage
-                const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
-                
-                await blockBlobClient.upload(part.data, part.data.length, {
-                    blobHTTPHeaders: {
-                        blobContentType: part.type,
-                        blobContentDisposition: `attachment; filename="${part.filename}"`
-                    },
-                    metadata: {
-                        originalName: part.filename,
-                        uploadDate: new Date().toISOString(),
-                        fileSize: part.data.length.toString(),
-                        fileId: fileId,
-                        ...metadata
-                    }
-                });
-                
-                // Get the URL
-                const blobUrl = blockBlobClient.url;
-                
-                uploadedFiles.push({
+            // Generate a unique file name
+            const fileExtension = filename.split('.').pop();
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const fileId = uuidv4();
+            const blobName = `${folderPath}/${timestamp}-${fileId}.${fileExtension}`;
+
+            // Upload to Azure Blob Storage
+            const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
+
+            await blockBlobClient.upload(fileBuffer, fileBuffer.length, {
+                blobHTTPHeaders: {
+                    blobContentType: contentType,
+                    blobContentDisposition: `attachment; filename="${filename}"`
+                },
+                metadata: {
+                    originalName: filename,
+                    uploadDate: new Date().toISOString(),
+                    fileSize: fileBuffer.length.toString(),
                     fileId: fileId,
-                    originalName: part.filename,
-                    url: blobUrl,
-                    type: this.getMediaType(part.type),
-                    contentType: part.type,
-                    size: part.data.length,
-                    blobName: blobName,
-                    path: blobUrl // For compatibility with existing schemas
-                });
-                
-            } catch (uploadError) {
-                throw new Error(`Failed to upload file ${part.filename}: ${uploadError.message}`);
-            }
+                    userId: userId,
+                    ...metadata
+                }
+            });
+
+            // Get the URL
+            const blobUrl = blockBlobClient.url;
+
+            return {
+                fileId: fileId,
+                originalName: filename,
+                url: blobUrl,
+                type: this.getMediaType(contentType),
+                contentType: contentType,
+                size: fileBuffer.length,
+                blobName: blobName,
+                path: blobUrl // For compatibility with existing schemas
+            };
+
+        } catch (uploadError) {
+            throw new Error(`Failed to upload file ${filename}: ${uploadError.message}`);
         }
-        
-        return uploadedFiles;
     }
 
     // Specific method for Arham Insurance documents
-    async uploadInsuranceDocument(request, userId) {
+    async uploadInsuranceDocument(fileBuffer, filename, contentType, userId) {
         try {
-            // Parse the multipart form data
-            const parts = this.parseMultipartData(request);
-            
             // Validate insurance document requirements for Arham Insurance
-            this.validateFiles(parts, {
+            this.validateRawFile(fileBuffer, filename, contentType, {
                 allowedTypes: [
                     'application/pdf',
                     'image/jpeg',
@@ -167,7 +125,6 @@ class UploadService {
                     'image/bmp'
                 ],
                 maxFileSize: 15 * 1024 * 1024, // 15MB for insurance docs
-                maxFiles: 1, // Only one insurance document per upload
                 requiredKeywords: [] // No specific keywords required for Arham Insurance
             });
 
@@ -175,59 +132,76 @@ class UploadService {
             const folderPath = `arham-insurance-documents/${userId}`;
             
             // Upload with insurance-specific metadata
-            const uploadedFiles = await this.uploadFiles(parts, {
+            const uploadedFile = await this.uploadRawFile(
+                fileBuffer,
+                filename,
+                contentType,
+                userId,
                 folderPath,
-                metadata: {
+                {
                     documentType: 'insurance-policy',
-                    userId: userId,
                     uploadedBy: 'user',
                     company: 'Arham Insurance Brokers',
                     companyCode: 'AIBL'
                 }
-            });
+            );
 
-            return uploadedFiles[0]; // Return single document
+            return uploadedFile;
         } catch (error) {
             throw new Error(`Arham Insurance document upload failed: ${error.message}`);
         }
     }
 
     // Specific method for claim supporting documents
-    async uploadClaimDocuments(request, userId, policyId) {
+    async uploadClaimDocuments(files, userId, policyId) {
         try {
-            const parts = this.parseMultipartData(request);
+            const uploadedFiles = [];
             
-            // Validate claim document requirements
-            this.validateFiles(parts, {
-                allowedTypes: [
-                    'application/pdf',
-                    'image/jpeg',
-                    'image/jpg',
-                    'image/png',
-                    'image/tiff',
-                    'image/bmp',
-                    'application/msword',
-                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                ],
-                maxFileSize: 10 * 1024 * 1024, // 10MB for claim docs
-                maxFiles: 5 // Max 5 supporting documents
-            });
+            if (!Array.isArray(files) || files.length === 0) {
+                throw new ValidationError('Files array is required and cannot be empty');
+            }
 
-            // Create unique folder path for claim documents
-            const folderPath = `arham-claim-documents/${userId}/${policyId}`;
-            
-            // Upload with claim-specific metadata
-            const uploadedFiles = await this.uploadFiles(parts, {
-                folderPath,
-                metadata: {
-                    documentType: 'claim-supporting',
-                    userId: userId,
-                    policyId: policyId,
-                    uploadedBy: 'user',
-                    company: 'Arham Insurance Brokers',
-                    companyCode: 'AIBL'
-                }
-            });
+            if (files.length > 5) {
+                throw new ValidationError('Maximum 5 supporting documents allowed');
+            }
+
+            for (const file of files) {
+                // Validate claim document requirements
+                this.validateRawFile(file.buffer, file.filename, file.contentType, {
+                    allowedTypes: [
+                        'application/pdf',
+                        'image/jpeg',
+                        'image/jpg',
+                        'image/png',
+                        'image/tiff',
+                        'image/bmp',
+                        'application/msword',
+                        'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                    ],
+                    maxFileSize: 10 * 1024 * 1024, // 10MB for claim docs
+                });
+
+                // Create unique folder path for claim documents
+                const folderPath = `arham-claim-documents/${userId}/${policyId}`;
+                
+                // Upload with claim-specific metadata
+                const uploadedFile = await this.uploadRawFile(
+                    file.buffer,
+                    file.filename,
+                    file.contentType,
+                    userId,
+                    folderPath,
+                    {
+                        documentType: 'claim-supporting',
+                        policyId: policyId,
+                        uploadedBy: 'user',
+                        company: 'Arham Insurance Brokers',
+                        companyCode: 'AIBL'
+                    }
+                );
+
+                uploadedFiles.push(uploadedFile);
+            }
 
             return uploadedFiles;
         } catch (error) {
@@ -414,6 +388,32 @@ class UploadService {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+
+    // Batch upload multiple files
+    async uploadMultipleFiles(files, userId, folderPath = 'general', metadata = {}) {
+        try {
+            const uploadedFiles = [];
+            
+            for (const file of files) {
+                this.validateRawFile(file.buffer, file.filename, file.contentType);
+                
+                const uploadedFile = await this.uploadRawFile(
+                    file.buffer,
+                    file.filename,
+                    file.contentType,
+                    userId,
+                    folderPath,
+                    metadata
+                );
+                
+                uploadedFiles.push(uploadedFile);
+            }
+            
+            return uploadedFiles;
+        } catch (error) {
+            throw new Error(`Batch upload failed: ${error.message}`);
+        }
     }
 }
 

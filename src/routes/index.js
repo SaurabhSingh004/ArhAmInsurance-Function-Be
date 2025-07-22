@@ -34,6 +34,8 @@ const diseasePredictionRoutes = require('./diseasePredictionRoutes');
 const goalsRoutes = require('./goalsRoutes');
 const fitnessRoutes = require('./fitnessRoutes');
 const dailyChecklistRoutes = require('./dailyChecklists');
+const insuranceRoutes = require('./insuranceRoutes');
+const claimRoutes = require('./claimRoutes');
 
 class Router {
     constructor() {
@@ -44,6 +46,8 @@ class Router {
 
     setupRoutes() {
         // Register all converted routes
+        claimRoutes.registerRoutes(this);
+        insuranceRoutes.registerRoutes(this);
         wellnessRoutes.registerRoutes(this);
         userRewardRoutes.registerRoutes(this);
         userRoutes.registerRoutes(this);
@@ -109,9 +113,10 @@ class Router {
         return path;
     }
 
+    
     compileRoute(method, path) {
         const key = `${method}:${path}`;
-        
+
         // Convert path pattern to regex and extract parameter names
         const paramNames = [];
         let regexPattern = path
@@ -123,19 +128,18 @@ class Router {
 
         // Ensure exact match by adding start and end anchors
         regexPattern = '^' + regexPattern + '$';
-        
+
         const regex = new RegExp(regexPattern);
-        
+
         this.compiledRoutes.set(key, {
             regex,
             paramNames,
             originalPath: path
         });
-        
-        console.log(`Compiled route: ${method} ${path} -> ${regexPattern}, params: [${paramNames.join(', ')}]`);
+
     }
 
-async handleFileUploads(request) {
+    async handleFileUploads(request, context) {
         try {
             // Handle Azure Functions v4 headers (Headers object vs plain object)
             let contentType;
@@ -147,62 +151,115 @@ async handleFileUploads(request) {
                 contentType = request.headers['Content-Type'] || request.headers['content-type'];
             }
 
-            if (!contentType || !contentType.includes('multipart/form-data')) {
+            // Add more robust validation
+            if (!contentType) {
+                context.log('No Content-Type header found');
                 return;
             }
 
-            console.log('Processing multipart/form-data request in router');
-            console.log('Content-Type:', contentType);
+            if (!contentType.includes('multipart/form-data')) {
+                context.log('Content-Type is not multipart/form-data:', contentType);
+                return;
+            }
+
+            context.log('Processing multipart/form-data request in router');
+            context.log('Content-Type:', contentType);
 
             // Get the request body - should now be a Buffer from main handler processing
             let bodyBuffer;
 
             if (Buffer.isBuffer(request.body)) {
                 bodyBuffer = request.body;
-                console.log('Using processed Buffer body, size:', bodyBuffer.length);
+                context.log('Using processed Buffer body, size:', bodyBuffer.length);
             } else if (request.rawBody && Buffer.isBuffer(request.rawBody)) {
                 bodyBuffer = request.rawBody;
-                console.log('Using rawBody Buffer, size:', bodyBuffer.length);
+                context.log('Using rawBody Buffer, size:', bodyBuffer.length);
             } else if (typeof request.body === 'string') {
                 bodyBuffer = Buffer.from(request.body, 'binary');
-                console.log('Converting string body to Buffer, size:', bodyBuffer.length);
+                context.log('Converting string body to Buffer, size:', bodyBuffer.length);
             } else if (request.body instanceof ReadableStream) {
                 // Fallback: if somehow the stream wasn't processed in main handler
-                console.log('Found unprocessed ReadableStream, processing now...');
+                context.log('Found unprocessed ReadableStream, processing now...');
                 bodyBuffer = await this.readStreamToBuffer(request.body);
-                console.log('Converted ReadableStream to Buffer, size:', bodyBuffer.length);
+                context.log('Converted ReadableStream to Buffer, size:', bodyBuffer.length);
             } else {
-                console.error('Request body type:', typeof request.body);
-                console.error('Request body constructor:', request.body?.constructor?.name);
+                context.error('Request body type:', typeof request.body);
+                context.error('Request body constructor:', request.body?.constructor?.name);
                 throw new Error('Unable to process request body - not a Buffer, string, or ReadableStream');
             }
-            console.log("body buffer", bodyBuffer);
-            // Use parse-multipart library (same as working implementation)
-            const boundary = multipart.getBoundary(contentType);
-            if (!boundary) {
-                throw new Error('Missing boundary in multipart/form-data');
+
+            context.log("body buffer", bodyBuffer);
+
+            // More robust boundary extraction
+            let boundary;
+            try {
+                boundary = multipart.getBoundary(contentType);
+            } catch (boundaryError) {
+                context.error('Error extracting boundary using parse-multipart:', boundaryError);
+                // Fallback to manual boundary extraction
+                boundary = this.extractBoundary(contentType, context);
             }
 
-            console.log('Boundary found:', boundary);
+            if (!boundary) {
+                context.error('Content-Type header:', contentType);
+                throw new Error('Missing or invalid boundary in multipart/form-data');
+            }
 
-            const parts = multipart.Parse(bodyBuffer, boundary);
+            context.log('Boundary found:', boundary);
+
+            // Use parse-multipart library with error handling
+            let parts;
+            parts = this.parseMultipartData(bodyBuffer, boundary, context);
+
 
             if (!parts || parts.length === 0) {
-                console.log('No parts found in multipart data');
+                context.log('No parts found in multipart data');
                 throw new Error('No files found in the request');
             }
 
-            console.log('Found', parts.length, 'parts in multipart data');
+            context.log('Found', parts.length, 'parts in multipart data');
 
             const files = {};
+            const formData = {}; // Initialize formData object
 
             for (const part of parts) {
-                console.log('Processing part:', {
+                // First determine the mimetype from the part
+                let mimetype = part.type || part.contentType || 'application/octet-stream';
+
+                // If no mimetype found, try to determine from filename
+                if (!mimetype || mimetype === 'application/octet-stream') {
+                    if (part.filename) {
+                        const ext = part.filename.split('.').pop()?.toLowerCase();
+                        switch (ext) {
+                            case 'jpg':
+                            case 'jpeg':
+                                mimetype = 'image/jpeg';
+                                break;
+                            case 'png':
+                                mimetype = 'image/png';
+                                break;
+                            case 'pdf':
+                                mimetype = 'application/pdf';
+                                break;
+                            case 'doc':
+                                mimetype = 'application/msword';
+                                break;
+                            case 'docx':
+                                mimetype = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+                                break;
+                            default:
+                                mimetype = 'application/octet-stream';
+                        }
+                    }
+                }
+
+                context.log('Processing part:', {
                     filename: part.filename,
                     name: part.name,
-                    type: part.type,
+                    type: mimetype,
                     dataSize: part.data?.length
                 });
+
                 if (part.filename) {
                     // It's a file - structure it to match controller expectations
                     const fieldName = part.name || 'file';
@@ -210,33 +267,173 @@ async handleFileUploads(request) {
                         name: part.filename,
                         originalname: part.filename,
                         data: part.data,
-                        mimetype: part.type || 'application/octet-stream',
+                        mimetype: mimetype,
                         size: part.data.length
                     };
-                    console.log(`File uploaded: ${part.filename}, size: ${part.data.length} bytes, type: ${part.type}`);
+                } else if (part.name) {
+                    // It's a form field - extract the text value and trim CRLF
+                    const fieldValue = part.data.toString('utf8').trim();
+                    formData[part.name] = fieldValue;
+                    context.log(`Form field: ${part.name} = ${fieldValue}`);
                 }
             }
+
             // Set files and form data on request
             request.files = files;
+            request.formData = formData; // Add this line to set formData
 
-            console.log('Files processed:', Object.keys(files));
+            context.log('Files processed:', Object.keys(files));
+            context.log('Form data processed:', Object.keys(formData));
 
             // Log file structure for debugging (matches controller expectations)
-            if (files.file) {
-                console.log('Main file structure:', {
-                    name: files.file.name,
-                    originalname: files.file.originalname,
-                    mimetype: files.file.mimetype,
-                    size: files.file.size,
-                    hasData: !!files.file.data
+            if (files.file || files.documents) {
+                const mainFile = files.file || files.documents;
+                context.log('Main file structure:', {
+                    name: mainFile.name,
+                    originalname: mainFile.originalname,
+                    mimetype: mainFile.mimetype,
+                    size: mainFile.size,
+                    hasData: !!mainFile.data
                 });
             }
 
         } catch (error) {
-            console.error('Error handling file uploads:', error);
+            context.error('Error handling file uploads:', error);
             throw new Error(`File upload processing failed: ${error.message}`);
         }
     }
+
+    // Enhanced boundary extraction method - FIXED: Added context parameter
+    extractBoundary(contentType, context) {
+        if (!contentType || typeof contentType !== 'string') {
+            return null;
+        }
+        console.log("content type boundry function", contentType);
+        // Look for boundary parameter in Content-Type header
+        const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
+        if (boundaryMatch) {
+            let boundary = boundaryMatch[1].trim();
+            if (context) {
+                context.log("boundaryMatch ", boundaryMatch);
+            }
+
+            // Remove quotes if present
+            if ((boundary.startsWith('"') && boundary.endsWith('"')) ||
+                (boundary.startsWith("'") && boundary.endsWith("'"))) {
+                boundary = boundary.slice(1, -1);
+            }
+            return boundary;
+        }
+
+        return null;
+    }
+
+    parseMultipartData(buffer, boundary, context) {
+        const parts = [];
+        const boundaryBuffer = Buffer.from(`--${boundary}`);
+        const endBoundaryBuffer = Buffer.from(`--${boundary}--`);
+        context.log("parseMultipartData buffer", buffer.length, "boundary", boundary);
+
+        let start = 0;
+        let pos = 0;
+
+        while (pos < buffer.length) {
+            const boundaryPos = buffer.indexOf(boundaryBuffer, pos);
+            context.log("parseMultipartData boundaryPos", boundaryPos);
+
+            if (boundaryPos === -1) break;
+
+            if (start > 0) {
+                // Extract the part between boundaries
+                const partBuffer = buffer.slice(start, boundaryPos);
+
+                const part = this.parsePart(partBuffer, context);
+                if (part) {
+                    parts.push(part);
+                }
+            }
+
+            start = boundaryPos + boundaryBuffer.length + 2; // +2 for \r\n
+            pos = start;
+
+            // Check if this is the end boundary
+            if (buffer.indexOf(endBoundaryBuffer, boundaryPos) === boundaryPos) {
+                break;
+            }
+        }
+
+        return parts;
+    }
+
+    parsePart(partBuffer, context) {
+        try {
+            // Find the double CRLF that separates headers from body
+            const headerEndPos = partBuffer.indexOf('\r\n\r\n');
+            if (headerEndPos === -1) return null;
+
+            context.log("partBuffer length", partBuffer.length);
+            const headerSection = partBuffer.slice(0, headerEndPos).toString('utf8');
+            let bodySection = partBuffer.slice(headerEndPos + 4);
+
+            // Remove trailing CRLF from body section (common in multipart)
+            while (bodySection.length > 0 &&
+                (bodySection[bodySection.length - 1] === 0x0A || // \n
+                    bodySection[bodySection.length - 1] === 0x0D)) { // \r
+                bodySection = bodySection.slice(0, -1);
+            }
+
+            context.log("headerSection", headerSection);
+
+            // Parse headers
+            const headers = {};
+            const headerLines = headerSection.split('\r\n');
+
+            for (const line of headerLines) {
+                const colonPos = line.indexOf(':');
+                if (colonPos > 0) {
+                    const key = line.slice(0, colonPos).trim().toLowerCase();
+                    const value = line.slice(colonPos + 1).trim();
+                    headers[key] = value;
+                }
+            }
+
+            // Extract content-disposition info
+            const contentDisposition = headers['content-disposition'];
+            if (!contentDisposition) return null;
+
+            const nameMatch = contentDisposition.match(/name="([^"]+)"/);
+            const filenameMatch = contentDisposition.match(/filename="([^"]+)"/);
+
+            const part = {
+                name: nameMatch ? nameMatch[1] : null,
+                filename: filenameMatch ? filenameMatch[1] : null,
+                type: headers['content-type'] || null,
+                contentType: headers['content-type'] || null,
+                data: bodySection
+            };
+
+            context.log('Parsed part:', {
+                name: part.name,
+                filename: part.filename,
+                type: part.type,
+                dataLength: part.data.length,
+                isFile: !!part.filename,
+                // Show first few characters for text fields (for debugging)
+                preview: !part.filename && part.data.length < 50 ?
+                    part.data.toString('utf8') :
+                    `${part.data.length} bytes`
+            });
+
+            return part;
+
+        } catch (error) {
+            if (context) {
+                context.error('Error parsing multipart part:', error);
+            }
+            return null;
+        }
+    }
+
 
     // Helper method to read ReadableStream to Buffer (fallback)
     async readStreamToBuffer(stream) {
@@ -303,7 +500,7 @@ async handleFileUploads(request) {
 
     async handle(request, context) {
         try {
-            console.log(`Handling request: ${request.method} ${request.url}`);
+            context.log(`Handling request: ${request.method} ${request.url}`);
             const method = request.method;
             const url = new URL(request.url);
             let pathname = url.pathname;
@@ -316,13 +513,13 @@ async handleFileUploads(request) {
             // Normalize pathname
             pathname = this.normalizePath(pathname);
 
-            console.log(`Normalized pathname: ${pathname}`);
+            context.log(`Normalized pathname: ${pathname}`);
 
             // Find matching route
-            const { handler, params } = this.findRoute(method, pathname);
+            const { handler, params } = this.findRoute(method, pathname, context);
 
             if (!handler) {
-                console.log(`No route found for: ${method} ${pathname}`);
+                context.log(`No route found for: ${method} ${pathname}`);
                 return {
                     status: 404,
                     jsonBody: {
@@ -332,7 +529,7 @@ async handleFileUploads(request) {
                 };
             }
 
-            console.log(`Route matched with params:`, params);
+            context.log(`Route matched with params:`, params);
 
             // Parse query parameters
             const query = {};
@@ -354,15 +551,15 @@ async handleFileUploads(request) {
             request.query = query;
 
             // Handle file uploads for multipart/form-data requests
-            await this.handleFileUploads(request);
+            await this.handleFileUploads(request, context);
 
             // Validate uploaded files if any
             if (request.files && Object.keys(request.files).length > 0) {
                 try {
                     this.validateFileParts(request.files);
-                    console.log('File validation passed');
+                    context.log('File validation passed');
                 } catch (validationError) {
-                    console.error('File validation failed:', validationError.message);
+                    context.error('File validation failed:', validationError.message);
                     return {
                         status: 400,
                         jsonBody: {
@@ -373,10 +570,11 @@ async handleFileUploads(request) {
                 }
             }
 
-            console.log(`Request params:`, request.params);
-            console.log(`Request query:`, request.query);
-            console.log(`Request files:`, request.files ? Object.keys(request.files) : 'none');
-            console.log(`Request body:`, request.body);
+            context.log(`Request params:`, request.params);
+            context.log(`Request query:`, request.query);
+            context.log(`Request files:`, request.files ? Object.keys(request.files) : 'none');
+            context.log(`Request body:`, request.body);
+            context.log("formdata:", request.formData);
 
             // Execute middleware and handler
             if (Array.isArray(handler)) {
@@ -395,7 +593,7 @@ async handleFileUploads(request) {
             }
 
         } catch (error) {
-            console.error('Router error:', error);
+            context.error('Router error:', error);
             return {
                 status: 500,
                 jsonBody: {
@@ -407,7 +605,25 @@ async handleFileUploads(request) {
         }
     }
 
-    findRoute(method, pathname) {
+    async getRequestBody(request) {
+        return new Promise((resolve, reject) => {
+            const chunks = [];
+
+            request.on('data', chunk => {
+                chunks.push(chunk);
+            });
+
+            request.on('end', () => {
+                resolve(Buffer.concat(chunks));
+            });
+
+            request.on('error', error => {
+                reject(error);
+            });
+        });
+    }
+
+    findRoute(method, pathname, context) {
         // Try exact match first (for static routes)
         const exactKey = `${method}:${pathname}`;
         if (this.routes.has(exactKey)) {
@@ -422,7 +638,7 @@ async handleFileUploads(request) {
             const match = pathname.match(compiledRoute.regex);
             if (match) {
                 const params = {};
-                
+
                 // Extract parameters from the match
                 for (let i = 0; i < compiledRoute.paramNames.length; i++) {
                     const paramName = compiledRoute.paramNames[i];
@@ -430,7 +646,9 @@ async handleFileUploads(request) {
                     params[paramName] = decodeURIComponent(paramValue);
                 }
 
-                console.log(`Route matched: ${key}, extracted params:`, params);
+                if (context) {
+                    context.log(`Route matched: ${key}, extracted params:`, params);
+                }
                 return { handler: this.routes.get(key), params };
             }
         }
@@ -479,8 +697,10 @@ async handleFileUploads(request) {
     }
 
     // Method to list all registered routes (useful for debugging)
-    listRoutes() {
-        console.log('\n=== Registered Routes ===');
+    listRoutes(context) {
+        if (context) {
+            context.log('\n=== Registered Routes ===');
+        }
         const routesByPrefix = {};
 
         for (const [key] of this.routes.entries()) {
@@ -494,21 +714,29 @@ async handleFileUploads(request) {
         }
 
         Object.keys(routesByPrefix).sort().forEach(prefix => {
-            console.log(`\n${prefix.toUpperCase()}:`);
-            routesByPrefix[prefix].sort().forEach(route => {
-                console.log(`  ${route}`);
-            });
+            if (context) {
+                context.log(`\n${prefix.toUpperCase()}:`);
+                routesByPrefix[prefix].sort().forEach(route => {
+                    context.log(`  ${route}`);
+                });
+            }
         });
 
-        console.log(`\nTotal: ${this.routes.size} routes`);
-        console.log(`Compiled: ${this.compiledRoutes.size} patterns\n`);
+        if (context) {
+            context.log(`\nTotal: ${this.routes.size} routes`);
+            context.log(`Compiled: ${this.compiledRoutes.size} patterns\n`);
+        }
     }
 
     // Debug method to test route matching
-    testRoute(method, path) {
-        console.log(`\n=== Testing Route: ${method} ${path} ===`);
-        const result = this.findRoute(method, path);
-        console.log('Result:', result);
+    testRoute(method, path, context) {
+        if (context) {
+            context.log(`\n=== Testing Route: ${method} ${path} ===`);
+        }
+        const result = this.findRoute(method, path, context);
+        if (context) {
+            context.log('Result:', result);
+        }
         return result;
     }
 }

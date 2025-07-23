@@ -1,7 +1,7 @@
 // services/InsuranceService.js
 const Insurance = require('../models/insurance');
 const UploadService = require('./UploadService');
-const WebSocketService = require('./WebSocketService');
+const WebSocketService = require('./websocketService');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');

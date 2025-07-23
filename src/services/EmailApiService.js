@@ -6,8 +6,8 @@ class EmailApiService {
         apiUrl: process.env.EMAIL_SERVICE_URL || 'https://otpmicroservice.azurewebsites.net/api/send-email',
         defaultCredentials: {
             service: "gmail",
-            user: process.env.EMAIL_USER || "himanshu@actofit.com",
-            password: "elnm ccrr mtvx zhux"
+            user: process.env.EMAIL_USER || "support@actofit.com",
+            password: process.env.EMAIL_PASSWORD || "hahg wjmp kzpd pjye"
         },
         defaultFrom: process.env.EMAIL_FROM,
         timeout: 30000 // 30 seconds timeout

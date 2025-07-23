@@ -20,7 +20,7 @@ const insuranceRoutes = {
         },
         {
             method: 'GET',
-            path: '/insurance',
+            path: '/insurance/policies',
             middleware: [authenticateToken],
             handler: insuranceController.getUserInsurances,
             description: 'Get all insurance policies for the authenticated user with optional filters'

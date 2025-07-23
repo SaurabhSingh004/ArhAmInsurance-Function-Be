@@ -1,6 +1,6 @@
 // controllers/insuranceController.js
-const InsuranceService = require('../services/InsuranceService');
-const ClaimService = require('../services/ClaimService');
+const InsuranceService = require('../services/insuranceService');
+const InsuranceQueryService = require('../services/InsuranceQueryService');
 
 class InsuranceController {
 
@@ -92,6 +92,366 @@ class InsuranceController {
                 jsonBody: {
                     success: false,
                     message: 'An unexpected error occurred. Please try again later.',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Initialize insurance document query conversation
+     */
+    initializeQuery = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            const { insuranceId, query } = await request.json() || {};
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            if (!insuranceId || !query) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Insurance ID and query are required',
+                        data: null
+                    }
+                };
+            }
+
+            const result = await InsuranceQueryService.initializeInsuranceQuery(userId, insuranceId, query);
+
+            return {
+                status: 201,
+                jsonBody: result
+            };
+
+        } catch (error) {
+            context.error('Error initializing insurance query:', error);
+
+            if (error.message.includes('not found') || 
+                error.message.includes('No document found')) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            if (error.message.includes('AI service') ||
+                error.message.includes('Invalid') ||
+                error.message.includes('required')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to initialize insurance query',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Query insurance document
+     */
+    queryDocument = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            const { chatId, query } = await request.json() || {};
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            if (!chatId || !query) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Chat ID and query are required',
+                        data: null
+                    }
+                };
+            }
+            const stringQuery = String(query);
+            const result = await InsuranceQueryService.queryInsuranceDocument(userId, chatId, stringQuery);
+
+            return {
+                status: 200,
+                jsonBody: result
+            };
+
+        } catch (error) {
+            context.error('Error querying insurance document:', error);
+
+            if (error.message.includes('not found') ||
+                error.message.includes('not yet processed')) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            if (error.message.includes('Invalid') ||
+                error.message.includes('required') ||
+                error.message.includes('WebSocket')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to process query',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Get conversation history
+     */
+    getConversationHistory = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            const { chatId } = request.params || {};
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            const conversations = await InsuranceQueryService.getConversationHistory(userId, chatId);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: conversations,
+                    message: 'Conversation history retrieved successfully'
+                }
+            };
+
+        } catch (error) {
+            context.error('Error getting conversation history:', error);
+
+            if (error.message.includes('not found')) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to retrieve conversation history',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Get user conversations (summary)
+     */
+    getUserConversations = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            const { limit } = request.query || {};
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            const conversations = await InsuranceQueryService.getUserConversations(userId, limit ? parseInt(limit) : undefined);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: conversations,
+                    message: 'User conversations retrieved successfully'
+                }
+            };
+
+        } catch (error) {
+            context.error('Error getting user conversations:', error);
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to retrieve conversations',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Delete conversation
+     */
+    deleteConversation = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            const { chatId } = request.params || {};
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            if (!chatId) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Chat ID is required',
+                        data: null
+                    }
+                };
+            }
+
+            await InsuranceQueryService.deleteConversation(userId, chatId);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: null,
+                    message: 'Conversation deleted successfully'
+                }
+            };
+
+        } catch (error) {
+            context.error('Error deleting conversation:', error);
+
+            if (error.message.includes('not found')) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to delete conversation',
+                    data: null
+                }
+            };
+        }
+    }
+
+    /**
+     * Get conversation statistics
+     */
+    getConversationStats = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            const stats = await InsuranceQueryService.getConversationStats(userId);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: stats,
+                    message: 'Conversation statistics retrieved successfully'
+                }
+            };
+
+        } catch (error) {
+            context.error('Error getting conversation stats:', error);
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to retrieve conversation statistics',
                     data: null
                 }
             };

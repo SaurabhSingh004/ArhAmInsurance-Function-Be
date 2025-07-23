@@ -548,21 +548,20 @@ class InsuranceController {
             if (status) filters.status = status;
             if (productName) filters.productName = new RegExp(productName, 'i');
 
-            const insurances = await InsuranceService.getUserInsurances(userId, filters);
+            const formattedData = await InsuranceService.getFormattedUserInsurances(userId, filters);
 
             return {
                 status: 200,
                 jsonBody: {
                     success: true,
-                    data: insurances,
-                    message: 'Insurances retrieved successfully'
+                    message: 'Insurance policies retrieved successfully',
+                    data: formattedData
                 }
             };
 
         } catch (error) {
             context.error('Error getting user insurances:', error);
 
-            // Handle validation errors
             if (error.message.includes('Invalid') || error.message.includes('required')) {
                 return {
                     status: 400,

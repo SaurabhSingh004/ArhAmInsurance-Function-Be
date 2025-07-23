@@ -447,6 +447,63 @@ class InsuranceService {
         }
     }
 
+    async getFormattedUserInsurances(userId, filters = {}) {
+        try {
+            const query = { userId, ...filters };
+            
+            const insurances = await Insurance.find(query)
+                .sort({ createdAt: -1 })
+                .lean();
+
+            // Get user email from first insurance record (assuming it's consistent)
+            const userEmail = insurances.length > 0 ? insurances[0].beneficiary.email : '';
+
+            // Count active policies
+            const activePolicies = insurances.filter(insurance => insurance.status === 'active').length;
+
+            // Format policies
+            const formattedPolicies = insurances.map(insurance => {
+                const formattedPolicy = {
+                    policyId: insurance.policyId,
+                    policyNumber: insurance.policyNumber,
+                    status: insurance.status,
+                    productName: insurance.productName,
+                    coveragePeriod: {
+                        startDate: insurance.coveragePeriod.startDate.toISOString().split('T')[0],
+                        endDate: insurance.coveragePeriod.endDate.toISOString().split('T')[0]
+                    },
+                    beneficiary: {
+                        name: insurance.beneficiary.name,
+                        email: insurance.beneficiary.email,
+                        birthDate: insurance.beneficiary.birthDate.toISOString().split('T')[0],
+                        documentNumber: insurance.beneficiary.documentNumber,
+                        residenceCountry: insurance.beneficiary.residenceCountry
+                    },
+                    duration: insurance.duration,
+                    coverage: insurance.coverage,
+                    docUrl: insurance.docUrl,
+                    createdAt: insurance.createdAt.toISOString().split('T')[0]
+                };
+
+                // Add cancelDate if present
+                if (insurance.cancelDate) {
+                    formattedPolicy.cancelDate = insurance.cancelDate.toISOString().split('T')[0];
+                }
+
+                return formattedPolicy;
+            });
+
+            return {
+                email: userEmail,
+                activePolicies: activePolicies,
+                policies: formattedPolicies
+            };
+
+        } catch (error) {
+            throw logError('getFormattedUserInsurances', error, { userId });
+        }
+    }
+
     /**
      * Update insurance status
      * @param {string} insuranceId - Insurance ID

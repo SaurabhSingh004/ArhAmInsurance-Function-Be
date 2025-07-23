@@ -15,7 +15,7 @@ class ClaimController {
 
             // Extract data from form data (request.body after multipart processing)
             let userId, email, claimData = {};
-            email = request.formData.email;
+            email = context.user?.email;
             // Extract required fields from form data
             userId = context.user?._id;
 

@@ -324,13 +324,6 @@ class InsuranceService {
                 throw new Error('Coverage period must include both start and end dates');
             }
 
-            // Validate beneficiary data
-            const requiredBeneficiaryFields = ['name', 'email', 'birthDate', 'documentNumber', 'residenceCountry'];
-            for (const field of requiredBeneficiaryFields) {
-                if (!insuranceData.beneficiary[field]) {
-                    throw new Error(`Missing required beneficiary field: ${field}`);
-                }
-            }
 
             // Validate dates
             let startDate, endDate, birthDate;
@@ -373,12 +366,6 @@ class InsuranceService {
                 throw new Error('Invalid duration format');
             }
 
-            // Validate email format
-            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-            if (!emailRegex.test(insuranceData.beneficiary.email)) {
-                throw new Error('Invalid beneficiary email format');
-            }
-
             // Prepare insurance document data
             const insuranceDoc = {
                 userId,
@@ -391,14 +378,14 @@ class InsuranceService {
                     endDate: endDate
                 },
                 beneficiary: {
-                    name: insuranceData.beneficiary.name.toString().trim(),
-                    email: insuranceData.beneficiary.email.toString().toLowerCase().trim(),
+                    name: insuranceData?.beneficiary?.name.toString().trim(),
+                    email: insuranceData?.beneficiary?.email.toString().toLowerCase().trim(),
                     birthDate: birthDate,
-                    documentNumber: insuranceData.beneficiary.documentNumber.toString().trim(),
-                    residenceCountry: insuranceData.beneficiary.residenceCountry.toString().trim()
+                    documentNumber: insuranceData?.beneficiary?.documentNumber.toString().trim(),
+                    residenceCountry: insuranceData?.beneficiary?.residenceCountry.toString().trim()
                 },
                 duration: duration,
-                coverage: insuranceData.coverage.toString().trim(),
+                coverage: insuranceData?.coverage.toString().trim(),
                 docUrl: uploadedFile.url,
                 chatId,
                 azureBlobName: uploadedFile.blobName,

@@ -216,6 +216,20 @@ class InsuranceService {
         } catch (error) {
             if (error.response) {
                 console.error('AI service error response:', error.response.data);
+                
+                // Check if it's a document validation error (invalid document type)
+                if (this.isInvalidDocumentError(error.response)) {
+                    throw new Error('Invalid document type. Please upload a valid insurance policy document.');
+                }
+                
+                // Check for other client-side errors that should be treated as bad requests
+                if (error.response.status >= 400 && error.response.status < 500) {
+                    // Try to extract meaningful error message from response
+                    const errorMessage = this.extractErrorMessage(error.response.data);
+                    throw new Error(errorMessage || 'Invalid document or request. Please check your file and try again.');
+                }
+                
+                // Server errors (500+)
                 throw new Error(`AI service error: ${error.response.status} - ${error.response.statusText}`);
             } else if (error.request) {
                 throw new Error('AI service did not respond');
@@ -223,6 +237,63 @@ class InsuranceService {
                 throw new Error(`AI service request error: ${error.message}`);
             }
         }
+    }
+
+    /**
+     * Check if the AI service error indicates an invalid document type
+     * @param {Object} errorResponse - Error response from AI service
+     * @returns {boolean} True if it's an invalid document error
+     */
+    isInvalidDocumentError(errorResponse) {
+        if (!errorResponse || !errorResponse.data) return false;
+        
+        const errorData = typeof errorResponse.data === 'string' 
+            ? errorResponse.data.toLowerCase() 
+            : JSON.stringify(errorResponse.data).toLowerCase();
+        
+        // Check for common patterns that indicate invalid document type
+        const invalidDocumentPatterns = [
+            'not an insurance',
+            'invalid insurance',
+            'not insurance document',
+            'document type not supported',
+            'unable to extract insurance',
+            'no insurance data found',
+            'invalid policy document',
+            'not a valid insurance policy',
+            'document does not contain insurance',
+            'failed to identify insurance',
+            'unrecognized document format',
+            'document format not supported for insurance'
+        ];
+        
+        return invalidDocumentPatterns.some(pattern => errorData.includes(pattern));
+    }
+
+    /**
+     * Extract meaningful error message from AI service response
+     * @param {*} errorData - Error data from AI service
+     * @returns {string} Extracted error message
+     */
+    extractErrorMessage(errorData) {
+        try {
+            if (typeof errorData === 'string') {
+                return errorData;
+            }
+            
+            if (errorData && typeof errorData === 'object') {
+                // Try common error message fields
+                return errorData.message || 
+                       errorData.error || 
+                       errorData.detail || 
+                       errorData.description ||
+                       null;
+            }
+        } catch (e) {
+            console.error('Error extracting error message:', e);
+        }
+        
+        return null;
     }
 
     /**

@@ -49,9 +49,22 @@ class InsuranceController {
                 };
             }
 
+            // Handle document validation errors (invalid document type)
+            if (error.message.includes('Invalid document type') ||
+                error.message.includes('Please upload a valid insurance policy document') ||
+                error.message.includes('Invalid document or request')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
             // Handle validation and business logic errors
             if (error.message.includes('Failed to upload') || 
-                error.message.includes('AI service') ||
                 error.message.includes('Unsupported file type') ||
                 error.message.includes('exceeds maximum size') ||
                 error.message.includes('Missing required field') ||
@@ -69,6 +82,31 @@ class InsuranceController {
                     jsonBody: {
                         success: false,
                         message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            // Handle AI service errors (500 level errors from AI service)
+            if (error.message.includes('AI service error: 5')) {
+                return {
+                    status: 500,
+                    jsonBody: {
+                        success: false,
+                        message: 'Document processing service is temporarily unavailable. Please try again later.',
+                        data: null
+                    }
+                };
+            }
+
+            // Handle AI service connection errors
+            if (error.message.includes('AI service did not respond') ||
+                error.message.includes('AI service request error')) {
+                return {
+                    status: 503,
+                    jsonBody: {
+                        success: false,
+                        message: 'Document processing service is temporarily unavailable. Please try again later.',
                         data: null
                     }
                 };

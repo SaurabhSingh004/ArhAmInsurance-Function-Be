@@ -7,7 +7,7 @@ const claimRoutes = {
    routes: [
        {
            method: 'POST',
-           path: '/claim',
+           path: '/claim/makeClaim',
            middleware: [authenticateToken],
            handler: claimController.createClaim,
            description: 'Create a new insurance claim'

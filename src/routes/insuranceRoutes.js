@@ -94,6 +94,13 @@ const insuranceRoutes = {
             middleware: [authenticateToken],
             handler: insuranceController.getConversationStats,
             description: 'Get conversation statistics for user'
+        },
+        {
+            method: 'POST',
+            path: '/insurance/compare',
+            middleware: [authenticateToken],
+            handler: insuranceController.compareDocuments,
+            description: 'Compare multiple insurance documents'
         }
     ],
 

@@ -1,7 +1,7 @@
 // controllers/insuranceController.js
 const InsuranceService = require('../services/insuranceService');
 const InsuranceQueryService = require('../services/InsuranceQueryService');
-
+const InsuranceComparisonService = require('../services/InsuranceComparerService');
 class InsuranceController {
 
     /**
@@ -773,6 +773,141 @@ class InsuranceController {
                 jsonBody: {
                     success: false,
                     message: 'Failed to retrieve insurance statistics',
+                    data: null
+                }
+            };
+        }
+    }
+
+    compareDocuments = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            // Extract files from request
+            let files = null;
+            if (request.files && Object.keys(request.files).length > 0) {
+                context.log('Available file fields:', Object.keys(request.files));
+                
+                let documents = [];
+                
+                // Check for specific field names first
+                if (request.files.files) {
+                    documents = Array.isArray(request.files.files) ? request.files.files : [request.files.files];
+                } else if (request.files.documents) {
+                    documents = Array.isArray(request.files.documents) ? request.files.documents : [request.files.documents];
+                } else {
+                    // Handle file1, file2, file3, etc. pattern
+                    const fileKeys = Object.keys(request.files).sort();
+                    for (const key of fileKeys) {
+                        const file = request.files[key];
+                        if (Array.isArray(file)) {
+                            documents.push(...file);
+                        } else {
+                            documents.push(file);
+                        }
+                    }
+                }
+
+                // If still no documents found, use all files
+                if (documents.length === 0) {
+                    documents = Object.values(request.files).flat();
+                }
+
+                context.log(`Processing ${documents.length} files for comparison`);
+
+                // Convert documents to expected format
+                files = documents.map((doc, index) => ({
+                    buffer: doc.buffer || doc.data,
+                    filename: doc.originalname || doc.name || doc.filename || `document_${index + 1}.pdf`,
+                    contentType: doc.mimetype || doc.contentType || 'application/pdf'
+                }));
+            }
+
+            if (!files || files.length === 0) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'No files provided for comparison',
+                        data: null
+                    }
+                };
+            }
+
+            if (files.length < 2) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'At least 2 documents are required for comparison',
+                        data: null
+                    }
+                };
+            }
+
+            // Get comparison metric from request body or default to 'compare'
+            const comparisonMetric = request.query?.comparisonMetric || 'compare';
+
+            const result = await InsuranceComparisonService.compareInsuranceDocuments(
+                files, 
+                userId, 
+                comparisonMetric
+            );
+
+            return {
+                status: 200,
+                jsonBody: result
+            };
+
+        } catch (error) {
+            context.error('Error comparing insurance documents:', error);
+
+            // Handle specific error types
+            if (error.message.includes('At least 2') || 
+                error.message.includes('Maximum') ||
+                error.message.includes('required for comparison') ||
+                error.message.includes('No files provided') ||
+                error.message.includes('Unsupported file type') ||
+                error.message.includes('exceeds maximum size')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            if (error.message.includes('Something went wrong') ||
+                error.message.includes('Comparison service') ||
+                error.message.includes('did not respond')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Something went wrong during document comparison',
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to compare insurance documents',
                     data: null
                 }
             };

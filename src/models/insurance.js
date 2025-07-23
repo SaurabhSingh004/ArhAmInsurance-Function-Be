@@ -2,31 +2,30 @@
 const mongoose = require('mongoose');
 
 const insuranceSchema = new mongoose.Schema({
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'users', required: true },
-    policyId: { type: String, required: true, unique: true },
-    policyNumber: { type: String, required: true },
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'users' },
+    policyId: { type: String, unique: true },
+    policyNumber: { type: String },
     status: { 
         type: String, 
-        enum: ['active', 'expired', 'cancelled'], 
-        required: true 
+        enum: ['active', 'expired', 'cancelled']
     },
-    productName: { type: String, required: true },
+    productName: { type: String },
     coveragePeriod: {
-        startDate: { type: Date, required: true },
-        endDate: { type: Date, required: true }
+        startDate: { type: Date },
+        endDate: { type: Date }
     },
     beneficiary: {
-        name: { type: String, required: true },
-        email: { type: String, required: true },
-        birthDate: { type: Date, required: true },
-        documentNumber: { type: String, required: true },
-        residenceCountry: { type: String, required: true }
+        name: { type: String },
+        email: { type: String },
+        birthDate: { type: Date },
+        documentNumber: { type: String },
+        residenceCountry: { type: String }
     },
-    duration: { type: Number, required: true }, // number of days
-    coverage: { type: String, required: true }, // coverage details
-    docUrl: { type: String, required: true }, // URL to the uploaded document
+    duration: { type: Number }, // number of days
+    coverage: { type: String }, // coverage details
+    docUrl: { type: String }, // URL to the uploaded document
     cancelDate: { type: Date }, // optional - only for cancelled policies
-    chatId: { type: String, required: true }, // for websocket communication
+    chatId: { type: String }, // for websocket communication
     azureBlobName: { type: String }, // Azure blob storage reference
     processingStatus: { 
         type: String, 

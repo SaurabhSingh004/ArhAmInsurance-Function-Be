@@ -1,5 +1,5 @@
 // services/InsuranceComparisonService.js
-const UploadService = require('./uploadService');
+const UploadService = require('./UploadService');
 const axios = require('axios');
 const FormData = require('form-data');
 const { logError } = require('../utils/logError');

@@ -535,6 +535,7 @@ class InsuranceService {
             // Format policies
             const formattedPolicies = insurances.map(insurance => {
                 const formattedPolicy = {
+                    _id: insurance._id,
                     policyId: insurance.policyId,
                     policyNumber: insurance.policyNumber,
                     status: insurance.status,

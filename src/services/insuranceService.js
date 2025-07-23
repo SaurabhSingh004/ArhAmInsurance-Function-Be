@@ -94,7 +94,7 @@ class InsuranceService {
             const structuredData = await WebSocketService.getStructuredInsuranceData(userId, chatId);
 
             // Step 6: Create insurance record in database
-            console.log('Step 6: Creating insurance record in database');
+            console.log('Step 6: Creating insurance record in database', structuredData);
             const insuranceRecord = await this.createInsuranceRecord(
                 userId, 
                 structuredData.insuranceData, 

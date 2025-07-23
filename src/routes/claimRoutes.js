@@ -1,5 +1,5 @@
 // routes/claimRoutes.js
-const claimController = require('../controllers/claimController');
+const claimController = require('../controllers/ClaimController');
 const { authenticateToken } = require('../middleware/auth');
 
 const claimRoutes = {

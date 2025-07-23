@@ -6,7 +6,7 @@ const insuranceRoutes = {
     routes: [
         {
             method: 'POST',
-            path: '/insurance/upload',
+            path: '/upload/insurance',
             middleware: [authenticateToken],
             handler: insuranceController.uploadInsuranceDocument,
             description: 'Upload and process an insurance document'

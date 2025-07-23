@@ -3,7 +3,7 @@ const mongoose = require('mongoose');
 
 const insuranceSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'users' },
-    policyId: { type: String, unique: true },
+    policyId: { type: String }, // removed unique: true
     policyNumber: { type: String },
     status: { 
         type: String, 
@@ -37,7 +37,10 @@ const insuranceSchema = new mongoose.Schema({
     insurer: { type: String, default: 'Arham Insurance Brokers Private Limited' }
 }, { timestamps: true });
 
-// Index for faster queries
+// Compound unique index - combination of userId and policyId must be unique
+insuranceSchema.index({ userId: 1, policyId: 1 }, { unique: true });
+
+// Other indexes for faster queries
 insuranceSchema.index({ userId: 1, status: 1 });
 insuranceSchema.index({ policyNumber: 1 });
 

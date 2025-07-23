@@ -416,9 +416,11 @@ class InsuranceService {
         } catch (error) {
             // Handle MongoDB duplicate key errors
             if (error.code === 11000) {
-                if (error.keyPattern && error.keyPattern.policyId) {
-                    throw new Error(`Insurance policy with ID '${insuranceData?.policyId}' already exists`);
+                // Check for compound unique index violation (userId + policyId)
+                if (error.keyPattern && error.keyPattern.userId && error.keyPattern.policyId) {
+                    throw new Error(`You already have an insurance policy with ID '${insuranceData?.policyId}'. Each policy ID must be unique for your account.`);
                 }
+                // Check for policyNumber duplicate (if you have a separate unique index on policyNumber)
                 if (error.keyPattern && error.keyPattern.policyNumber) {
                     throw new Error(`Insurance policy with number '${insuranceData?.policyNumber}' already exists`);
                 }
@@ -452,7 +454,8 @@ class InsuranceService {
             if (error.message.includes('Missing required field') || 
                 error.message.includes('Invalid') || 
                 error.message.includes('must be') ||
-                error.message.includes('already exists')) {
+                error.message.includes('already exists') ||
+                error.message.includes('You already have')) {
                 throw error;
             }
 

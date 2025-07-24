@@ -686,7 +686,7 @@ class AuthController {
                     success: true,
                     message: 'Email verification status retrieved successfully',
                     data: {
-                        emailVerified: isEmailVerified
+                        emailVerified: isEmailVerified ? false : true
                     }
                 }
             };

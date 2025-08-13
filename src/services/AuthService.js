@@ -10,6 +10,7 @@ const TaskService = require('./TaskService');
 const { EmailApiService } = require('./EmailApiService');
 const GoalsService = require('../services/GoalsService');
 const BuildFunctionalityService = require('../services/BuildFunctionalityService');
+const jwt_decode = require('jwt-decode');
 class AuthService {
 
     static async findUserById(id) {
@@ -875,20 +876,23 @@ This email was sent to ${email}
 
     static async handleGoogleCallback(googleUserData) {
         try {
-            const { user, credential, profile, appName } = googleUserData;
+            const { user, credential, profile, appName, buildNumber = '1.5.0' } = googleUserData;
 
             let existingUser = await User.findOne({ email: profile.email });
             if (!existingUser) {
                 // Create a new wallet for the user
                 const wallet = await Wallet.create({ balance: 0 });
-
+                // Send verification SMS if phone number provided
+                const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
+                const isSmsOtpEnabled = (buildFeatures && !buildFeatures.isSmsOtpEnabled) ? true : false;
+                
                 // Create new user
                 existingUser = new User({
                     email: profile.email,
                     walletId: wallet._id,
                     // Set verified status for social login
                     emailVerified: true, // Email is verified through Google
-                    phoneVerified: appName == "ProHealth" ? true : false, // Phone still needs verification
+                    phoneVerified: appName == "ProHealth" ? true : isSmsOtpEnabled ? true : false, // Phone still needs verification
                     auth: {
                         provider: 'google',
                         providerUserId: user.uid,
@@ -966,12 +970,19 @@ This email was sent to ${email}
         }
     }
 
-    static async handleAppleCallback(appleUserData) {
+    static async handleAppleCallback(appleUserData, context) {
         try {
-            const { credential, profile, appName } = appleUserData;
+            const { credential, profile, appName, buildNumber = '1.5.0' } = appleUserData;
 
             // Extract email and user ID (sub)
-            const email = profile?.email;
+            let email = profile?.email;
+
+            if(!email) {
+                const decoded = jwt_decode(credential.identityToken);
+                context.log("decoded identityToken data:", decoded);
+                email = decoded.email;
+            }
+
             const appleUniqueId = credential.user;
 
             // Try finding user by email or appleUniqueId
@@ -985,6 +996,9 @@ This email was sent to ${email}
             if (!user) {
                 // Create a new wallet for the user
                 const wallet = await Wallet.create({ balance: 0 });
+                const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
+                const isSmsOtpEnabled = (buildFeatures && !buildFeatures.isSmsOtpEnabled) ? true : false;
+
                 const emailVerifyCheck = !!email || !!user?.email || !!appleUniqueId;
                 // Create new user
                 user = new User({
@@ -993,7 +1007,7 @@ This email was sent to ${email}
                     walletId: wallet._id,
                     // Set verified status for social login
                     emailVerified: emailVerifyCheck, // Email is verified if provided by Apple
-                    phoneVerified: appName == "ProHealth" ? true : false, // Phone still needs verification
+                    phoneVerified: appName == "ProHealth" ? true : isSmsOtpEnabled ? true : false, // Phone still needs verification
                     auth: {
                         provider: 'apple',
                         providerUserId: appleUniqueId,

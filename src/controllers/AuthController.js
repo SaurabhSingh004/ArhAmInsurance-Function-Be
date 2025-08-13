@@ -312,7 +312,8 @@ class AuthController {
         try {
             const payload = await request.json();
             context.log("Apple Payload", payload);
-            const result = await AuthService.handleAppleCallback( payload );
+
+            const result = await AuthService.handleAppleCallback( payload , context);
 
             // Customize message if account was reactivated
             const message = result.user.wasReactivated

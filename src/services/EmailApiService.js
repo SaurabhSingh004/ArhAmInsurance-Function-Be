@@ -3,11 +3,11 @@ const axios = require('axios');
 class EmailApiService {
     // Static configuration
     static emailConfig = {
-        apiUrl: process.env.EMAIL_SERVICE_URL || 'https://otpmicroservice.azurewebsites.net/api/send-email',
+        apiUrl: process.env.EMAIL_SERVICE_URL,
         defaultCredentials: {
             service: "gmail",
-            user: process.env.EMAIL_USER || "support@actofit.com",
-            password: process.env.EMAIL_PASSWORD || "hahg wjmp kzpd pjye"
+            user: process.env.EMAIL_USER,
+            password: process.env.EMAIL_PASSWORD
         },
         defaultFrom: process.env.EMAIL_FROM,
         timeout: 30000 // 30 seconds timeout

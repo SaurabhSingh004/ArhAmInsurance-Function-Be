@@ -7,6 +7,7 @@ class AIService {
         if (!promptBody) {
             throw new Error('Prompt body is required');
         }
+
         // Validate required environment variables
         if (!azureToken.AZURE_ENDPOINT || !azureToken.AZURE_API_KEY ||
             !azureToken.AZURE_DEPLOYMENT_NAME || !azureToken.AZURE_API_VERSION) {
@@ -31,7 +32,6 @@ class AIService {
 
             return response.data.choices[0].message.content;
         } catch (error) {
-            console.log("aiResponse ", error);
             throw logError('getAIResponse', error, { promptBody });
         }
     }

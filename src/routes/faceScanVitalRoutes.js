@@ -6,7 +6,6 @@ const faceScanVitalRoutes = {
         {
             method: 'POST',
             path: '/faceScan',
-            middleware: [authenticateToken],
             handler: faceScanVitalController.addFaceScanVitalData,
             description: 'Create new face scan vital data'
         },
@@ -16,6 +15,18 @@ const faceScanVitalRoutes = {
             middleware: [authenticateToken],
             handler: faceScanVitalController.getAllFaceScanVitalData,
             description: 'Get all face scan vital data for authenticated user'
+        },
+        {
+            method: 'GET',
+            path: '/face-scans',
+            handler: faceScanVitalController.getFaceScans,
+            description: 'Get all face scans for specific arcare user'
+        },
+        {
+            method: 'GET',
+            path: '/face-scan-vitals',
+            handler: faceScanVitalController.getFaceScanVitals,
+            description: 'Get detailed face scan vital logs for specific arcare user'
         },
         {
             method: 'GET',
@@ -57,6 +68,5 @@ const faceScanVitalRoutes = {
         });
     }
 };
-
 
 module.exports = faceScanVitalRoutes;

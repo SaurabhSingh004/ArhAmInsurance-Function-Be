@@ -34,7 +34,8 @@ class UserRewardService {
       const availableTasks = tasks.map(task => ({
         taskId: task._id,
         pointsEarned: 0, // Initially, no points are earned until the task is completed.
-        isCompleted: false
+        isCompleted: false,
+        isActive: true
       }));
 
       // Create a new DailyUserReward document.

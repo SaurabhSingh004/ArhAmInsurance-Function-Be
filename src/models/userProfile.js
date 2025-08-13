@@ -151,7 +151,7 @@ const userSchema = new mongoose.Schema({
     }],
     applicationCode: {
         type: String,
-        default: 'ArihamInsurance'
+        default: 'ACTWEL'
     },
     auth: authSchema,
     profile: profileSchema,

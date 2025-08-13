@@ -99,7 +99,7 @@ class AuthService {
         try {
             console.log(`Sending verification email to: ${email} , ${token}`);
             if (!email || !token) {
-                throw new Error('Email and token are required');
+                return { success: false, error: 'Email and token are required' };
             }
 
             let emailData;
@@ -132,11 +132,11 @@ class AuthService {
 
             const result = await EmailApiService.sendEmail(emailData);
             console.log(`Verification email sent successfully to: ${email}`);
-            return result;
+            return { success: true, result };
 
         } catch (error) {
             console.error('sendVerificationEmail error:', error.message);
-            throw new Error(`Failed to send verification email: ${error.message}`);
+            return { success: false, error: error.message };
         }
     }
 
@@ -314,24 +314,59 @@ This email was sent to ${email}
                     phoneNumber: phoneNumber
                 }
             });
-            let subProfileUser = null;
+                
+            // Initialize verification status message
+            let verificationMessage = 'User registered successfully';
+            let emailSent = false;
+            let smsSent = false;
 
             // Send verification emails/SMS if enabled
             if (process.env.ENABLE_VERIFICATION === 'true') {
-                // Send verification email
-                await this.sendVerificationEmail(email, emailToken);
+                // Try to send verification email
+                try {
+                    const emailResult = await this.sendVerificationEmail(email, emailToken);
+                    if (emailResult.success) {
+                        emailSent = true;
+                    } else {
+                        console.error('Email verification failed:', emailResult.error);
+                    }
+                } catch (emailError) {
+                    console.error('Email verification sending failed:', emailError.message);
+                }
 
                 // Send verification SMS if phone number provided
                 const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
                 if (phoneNumber && phoneOTP) {
-                    if(buildFeatures && !buildFeatures.isSmsOtpEnabled) {
+                    if (buildFeatures && !buildFeatures.isSmsOtpEnabled) {
                         user.phoneVerified = true;
                         user.phoneVerificationCode = null;
                         user.phoneVerificationExpires = null;
                         await user.save();
+                        smsSent = true; // Consider it as sent since it's auto-verified
                     } else {
-                        await this.sendPhoneVerification(phoneNumber, phoneOTP);
+                        // Try to send phone verification
+                        try {
+                            const smsResult = await this.sendPhoneVerification(phoneNumber, phoneOTP);
+                            if (smsResult && smsResult.success) {
+                                smsSent = true;
+                            } else {
+                                console.error('SMS verification failed:', smsResult ? smsResult.error : 'Unknown error');
+                            }
+                        } catch (smsError) {
+                            console.error('SMS verification sending failed:', smsError.message);
+                        }
                     }
+                } else {
+                    smsSent = true; // No SMS needed, so consider it as handled
+                }
+
+                // Set appropriate message based on what succeeded/failed
+                if (!emailSent && !smsSent && phoneNumber && phoneOTP) {
+                    verificationMessage = 'User registered successfully. Email and SMS verification pending - please try again later';
+                } else if (!emailSent) {
+                    verificationMessage = 'User registered successfully. Email verification pending - please try again later';
+                } else if (!smsSent && phoneNumber && phoneOTP && !(buildFeatures && !buildFeatures.isSmsOtpEnabled)) {
+                    verificationMessage = 'User registered successfully. SMS verification pending - please try again later';
                 }
             }
 
@@ -339,6 +374,8 @@ This email was sent to ${email}
 
             // Add token to result
             const responseData = {
+                success: true,
+                message: verificationMessage,
                 user: {
                     _id: user._id,
                     email: user.email,
@@ -360,8 +397,6 @@ This email was sent to ${email}
                     isSRT: user?.isSRT,
                     isUploadBloodTestReport: user?.isUploadBloodTestReport,
                 },
-
-                subProfileUser: subProfileUser,
                 token: jwtAccessToken
             };
 
@@ -1506,7 +1541,7 @@ This email was sent to ${email}
             }
 
             // Return email verification status need to revert 
-            return user.emailVerified ? false : true; // Return false if email is verified, true if not
+            return user.emailVerified; // Return false if email is verified, true if not
 
         } catch (error) {
             console.error('Error checking email verification:', error.message);

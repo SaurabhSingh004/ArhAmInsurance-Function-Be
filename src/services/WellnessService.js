@@ -75,15 +75,37 @@ class WellnessService {
                 }
             },
             face_scan: {
-                oxygen: { min: 95, optimal: 98, max: 100 },
-                systolic: { min: 90, optimal: 115, max: 130 },
-                diastolic: { min: 60, optimal: 75, max: 85 },
-                bpm: { min: 60, optimal: 70, max: 100 },
-                rmssd: { min: 20, optimal: 40, max: 60 },
-                sdnn: { min: 30, optimal: 50, max: 70 },
-                pnn50: { min: 15, optimal: 30, max: 50 },
-                map: { min: 70, optimal: 85, max: 100 },
-                stress_score: { min: 0, max: 100 }
+                // SpO2 (Oxygen Saturation) - Critical health metric
+                spo2: { min: 95, optimal: 98, max: 100 },
+                
+                // Blood Pressure - Systolic and Diastolic
+                bp_systolic: { min: 90, optimal: 115, max: 130 },
+                bp_diastolic: { min: 60, optimal: 75, max: 85 },
+                
+                // Heart Rate - Beats per minute
+                heart_rate: { min: 60, optimal: 70, max: 100 },
+                
+                // Respiratory Rate - Breaths per minute
+                respiratory_rate: { min: 12, optimal: 16, max: 20 },
+                
+                // Advanced Health Risk Ranges (for AI predictions)
+                // AAFMA Risk - Lower is better (0-1 scale)
+                aafma_risk: { min: 0, optimal: 0.05, max: 0.2 },
+                
+                // Diabetes Risk - Lower is better (0-1 scale)
+                diabetes_risk: { min: 0, optimal: 0.05, max: 0.25 },
+                
+                // Overall Cardiovascular Risk - Percentage (0-100, lower is better)
+                overall_cardiovascular_risk: { min: 0, optimal: 5, max: 20 },
+                
+                // Cholesterol Level - mg/dL
+                cholesterol_level: { min: 150, optimal: 180, max: 200 },
+                
+                // HbA1c Estimated - Percentage
+                hba1c_estimated: { min: 4.5, optimal: 5.0, max: 5.7 },
+                
+                // Confidence Scores - Higher is better (0-1 scale)
+                confidence_threshold: { min: 0.8, optimal: 0.95, max: 1.0 }
             }
         };
 
@@ -105,7 +127,6 @@ class WellnessService {
         this.minMetricsRequired = 3;
     }
 
-    // Enhanced face scan scoring
     getFaceScanScore(faceScanData) {
         try {
             if (!faceScanData) return 0;
@@ -113,64 +134,61 @@ class WellnessService {
             const scores = [];
             const ideal = this.idealData.face_scan;
 
-            // Oxygen saturation (critical metric)
-            if (faceScanData.oxygen !== null && faceScanData.oxygen !== undefined) {
-                const oxygenScore = this.calculateOptimalRangeScore(
-                    faceScanData.oxygen,
-                    ideal.oxygen.min,
-                    ideal.oxygen.optimal,
-                    ideal.oxygen.max
+            // SpO2 (Oxygen saturation) - critical metric
+            if (faceScanData.spo2 !== null && faceScanData.spo2 !== undefined) {
+                const spo2Score = this.calculateOptimalRangeScore(
+                    faceScanData.spo2,
+                    ideal.spo2.min,
+                    ideal.spo2.optimal,
+                    ideal.spo2.max
                 );
-                scores.push({ score: oxygenScore, weight: 0.3 });
+                scores.push({ score: spo2Score, weight: 0.25 });
             }
 
             // Blood pressure (combined systolic and diastolic)
-            if (faceScanData.systolic && faceScanData.diastolic) {
+            if (faceScanData.bp_systolic && faceScanData.bp_diastolic) {
                 const systolicScore = this.calculateOptimalRangeScore(
-                    faceScanData.systolic,
-                    ideal.systolic.min,
-                    ideal.systolic.optimal,
-                    ideal.systolic.max
+                    faceScanData.bp_systolic,
+                    ideal.bp_systolic.min,
+                    ideal.bp_systolic.optimal,
+                    ideal.bp_systolic.max
                 );
                 const diastolicScore = this.calculateOptimalRangeScore(
-                    faceScanData.diastolic,
-                    ideal.diastolic.min,
-                    ideal.diastolic.optimal,
-                    ideal.diastolic.max
+                    faceScanData.bp_diastolic,
+                    ideal.bp_diastolic.min,
+                    ideal.bp_diastolic.optimal,
+                    ideal.bp_diastolic.max
                 );
                 scores.push({ score: (systolicScore + diastolicScore) / 2, weight: 0.25 });
             }
 
-            // Heart Rate Variability metrics
-            if (faceScanData.rmssd) {
-                const rmssdScore = this.calculateOptimalRangeScore(
-                    faceScanData.rmssd,
-                    ideal.rmssd.min,
-                    ideal.rmssd.optimal,
-                    ideal.rmssd.max
+            // Heart rate
+            if (faceScanData.heart_rate !== null && faceScanData.heart_rate !== undefined) {
+                const heartRateScore = this.calculateOptimalRangeScore(
+                    faceScanData.heart_rate,
+                    ideal.heart_rate.min,
+                    ideal.heart_rate.optimal,
+                    ideal.heart_rate.max
                 );
-                scores.push({ score: rmssdScore, weight: 0.15 });
+                scores.push({ score: heartRateScore, weight: 0.2 });
             }
 
-            if (faceScanData.sdnn) {
-                const sdnnScore = this.calculateOptimalRangeScore(
-                    faceScanData.sdnn,
-                    ideal.sdnn.min,
-                    ideal.sdnn.optimal,
-                    ideal.sdnn.max
+            // Respiratory rate
+            if (faceScanData.respiratory_rate !== null && faceScanData.respiratory_rate !== undefined) {
+                const respiratoryScore = this.calculateOptimalRangeScore(
+                    faceScanData.respiratory_rate,
+                    ideal.respiratory_rate.min,
+                    ideal.respiratory_rate.optimal,
+                    ideal.respiratory_rate.max
                 );
-                scores.push({ score: sdnnScore, weight: 0.15 });
+                scores.push({ score: respiratoryScore, weight: 0.15 });
             }
 
-            // Mean Arterial Pressure
-            if (faceScanData.map) {
-                const mapScore = this.calculateOptimalRangeScore(
-                    faceScanData.map,
-                    ideal.map.min,
-                    ideal.map.optimal,
-                    ideal.map.max
-                );
-                scores.push({ score: mapScore, weight: 0.15 });
+            // Overall cardiovascular risk (inverted - lower is better)
+            if (faceScanData.overall_cardiovascular_risk !== null && faceScanData.overall_cardiovascular_risk !== undefined) {
+                // Convert risk percentage to score (0% risk = 100 score, 100% risk = 0 score)
+                const riskScore = Math.max(0, 100 - faceScanData.overall_cardiovascular_risk);
+                scores.push({ score: riskScore, weight: 0.15 });
             }
 
             if (scores.length === 0) return 0;
@@ -185,7 +203,7 @@ class WellnessService {
         }
     }
 
-    // New method for optimal range scoring (min-optimal-max)
+    // Enhanced method for optimal range scoring with health-specific logic
     calculateOptimalRangeScore(value, min, optimal, max) {
         if (value === null || value === undefined) return 0;
         
@@ -212,6 +230,183 @@ class WellnessService {
             const penalty = ((value - max) / max) * 60;
             return Math.max(0, 60 - penalty);
         }
+    }
+
+    // New method to get comprehensive health risk score
+    getHealthRiskScore(faceScanData) {
+        try {
+            if (!faceScanData) return { score: 0, riskLevel: 'Unknown' };
+
+            const riskFactors = [];
+
+            // AAFMA (Atrial Fibrillation) Risk
+            if (faceScanData.aafma_risk !== null && faceScanData.aafma_risk !== undefined) {
+                const aafmaScore = Math.max(0, 100 - (faceScanData.aafma_risk * 100));
+                riskFactors.push({ 
+                    name: 'AAFMA Risk', 
+                    score: aafmaScore, 
+                    weight: 0.2,
+                    category: faceScanData.aafma_category,
+                    confidence: faceScanData.aafma_confidence
+                });
+            }
+
+            // Diabetes Risk
+            if (faceScanData.diabetes_risk !== null && faceScanData.diabetes_risk !== undefined) {
+                const diabetesScore = Math.max(0, 100 - (faceScanData.diabetes_risk * 100));
+                riskFactors.push({ 
+                    name: 'Diabetes Risk', 
+                    score: diabetesScore, 
+                    weight: 0.2,
+                    category: faceScanData.diabetes_category,
+                    hba1c: faceScanData.hba1c_estimated,
+                    confidence: faceScanData.diabetes_confidence
+                });
+            }
+
+            // Cholesterol Risk (based on level and category)
+            if (faceScanData.cholesterol_level !== null && faceScanData.cholesterol_level !== undefined) {
+                let cholesterolScore = 100;
+                // Scoring based on cholesterol levels (mg/dL)
+                if (faceScanData.cholesterol_level < 200) cholesterolScore = 100;
+                else if (faceScanData.cholesterol_level < 240) cholesterolScore = 70;
+                else cholesterolScore = 40;
+                
+                riskFactors.push({ 
+                    name: 'Cholesterol Risk', 
+                    score: cholesterolScore, 
+                    weight: 0.15,
+                    level: faceScanData.cholesterol_level,
+                    category: faceScanData.cholesterol_category,
+                    confidence: faceScanData.cholesterol_confidence
+                });
+            }
+
+            // Overall Cardiovascular Risk
+            if (faceScanData.overall_cardiovascular_risk !== null && faceScanData.overall_cardiovascular_risk !== undefined) {
+                const cvScore = Math.max(0, 100 - faceScanData.overall_cardiovascular_risk);
+                riskFactors.push({ 
+                    name: 'Cardiovascular Risk', 
+                    score: cvScore, 
+                    weight: 0.25,
+                    riskPercentage: faceScanData.overall_cardiovascular_risk
+                });
+            }
+
+            // Vital Signs Risk (based on deviations from normal ranges)
+            const vitalRisks = [];
+            
+            // Blood pressure risk
+            if (faceScanData.bp_systolic && faceScanData.bp_diastolic) {
+                let bpRisk = 0;
+                if (faceScanData.bp_systolic >= 140 || faceScanData.bp_diastolic >= 90) bpRisk = 40;
+                else if (faceScanData.bp_systolic >= 130 || faceScanData.bp_diastolic >= 80) bpRisk = 20;
+                else if (faceScanData.bp_systolic < 90 || faceScanData.bp_diastolic < 60) bpRisk = 30;
+                
+                vitalRisks.push(100 - bpRisk);
+            }
+
+            // Heart rate risk
+            if (faceScanData.heart_rate) {
+                let hrRisk = 0;
+                if (faceScanData.heart_rate > 100 || faceScanData.heart_rate < 60) hrRisk = 20;
+                else if (faceScanData.heart_rate > 90 || faceScanData.heart_rate < 70) hrRisk = 10;
+                
+                vitalRisks.push(100 - hrRisk);
+            }
+
+            // SpO2 risk
+            if (faceScanData.spo2) {
+                let spo2Risk = 0;
+                if (faceScanData.spo2 < 95) spo2Risk = 50;
+                else if (faceScanData.spo2 < 97) spo2Risk = 20;
+                
+                vitalRisks.push(100 - spo2Risk);
+            }
+
+            if (vitalRisks.length > 0) {
+                const avgVitalScore = vitalRisks.reduce((sum, score) => sum + score, 0) / vitalRisks.length;
+                riskFactors.push({ 
+                    name: 'Vital Signs Risk', 
+                    score: avgVitalScore, 
+                    weight: 0.2 
+                });
+            }
+
+            if (riskFactors.length === 0) {
+                return { score: 0, riskLevel: 'Unknown', factors: [] };
+            }
+
+            const totalWeightedScore = riskFactors.reduce((sum, item) => sum + (item.score * item.weight), 0);
+            const totalWeight = riskFactors.reduce((sum, item) => sum + item.weight, 0);
+            const overallScore = Number((totalWeightedScore / totalWeight).toFixed(2));
+
+            // Determine risk level
+            let riskLevel = 'Low';
+            if (overallScore < 40) riskLevel = 'Very High';
+            else if (overallScore < 60) riskLevel = 'High';
+            else if (overallScore < 80) riskLevel = 'Moderate';
+
+            return {
+                score: overallScore,
+                riskLevel: riskLevel,
+                factors: riskFactors,
+                recommendations: this.getHealthRecommendations(riskLevel, riskFactors)
+            };
+
+        } catch (error) {
+            throw logError('getHealthRiskScore', error, { faceScanData });
+        }
+    }
+
+    // Method to provide health recommendations based on risk assessment
+    getHealthRecommendations(riskLevel, riskFactors) {
+        const recommendations = [];
+
+        // General recommendations based on overall risk level
+        switch (riskLevel) {
+            case 'Very High':
+                recommendations.push('Consult with a healthcare provider immediately');
+                recommendations.push('Consider comprehensive health screening');
+                break;
+            case 'High':
+                recommendations.push('Schedule a consultation with your doctor within 2 weeks');
+                recommendations.push('Monitor vital signs daily');
+                break;
+            case 'Moderate':
+                recommendations.push('Schedule a routine health checkup');
+                recommendations.push('Consider lifestyle modifications');
+                break;
+            case 'Low':
+                recommendations.push('Maintain current healthy lifestyle');
+                recommendations.push('Continue regular health monitoring');
+                break;
+        }
+
+        // Specific recommendations based on risk factors
+        riskFactors.forEach(factor => {
+            if (factor.score < 70) {
+                switch (factor.name) {
+                    case 'AAFMA Risk':
+                        recommendations.push('Consider cardiac rhythm monitoring');
+                        break;
+                    case 'Diabetes Risk':
+                        recommendations.push('Monitor blood glucose levels and consider dietary changes');
+                        break;
+                    case 'Cholesterol Risk':
+                        recommendations.push('Review diet and consider cholesterol management');
+                        break;
+                    case 'Cardiovascular Risk':
+                        recommendations.push('Focus on cardiovascular health through exercise and diet');
+                        break;
+                    case 'Vital Signs Risk':
+                        recommendations.push('Monitor vital signs regularly and maintain healthy habits');
+                        break;
+                }
+            }
+        });
+
+        return [...new Set(recommendations)]; // Remove duplicates
     }
 
     // Enhanced BMI scoring with proper healthy range consideration
@@ -506,6 +701,7 @@ class WellnessService {
             } = params;
             
             console.log(age, "...", gender, "....", weight, "....", height);
+            console.log("steps, ",steps, "active minutes ", activeMinutes, "hoursOfSleep ",hoursOfSleep, "restingHeartRate", restingHeartRate);
             
             if (!age || !gender) {
                 return { wellnessScore: 0 };
@@ -516,6 +712,7 @@ class WellnessService {
 
             // Get face scan data
             const faceScanData = await FaceScanVitalService.getLatestFaceScanVitalData(userId);
+            console.log("faceScanData", faceScanData);
             
             const scores = {
                 physScore: this.getPhysicalActivityScore(steps, activeMinutes, caloriesBurned, gender.toLowerCase(), ageGroup),
@@ -697,9 +894,7 @@ class WellnessService {
             }
 
             const age = this.calculateAge(profile.dateOfBirth);
-            const fitnessData = await FitnessDataService.getFitnessDataForCurrentDay(userId);
-            
-            console.log("fitnessData", fitnessData);
+            const fitnessData = await FitnessDataService.getFitnessDataForLast24Hours(userId);
             
             const scores = await this.calculateWellnessScore({
                 userId,

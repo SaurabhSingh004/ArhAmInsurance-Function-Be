@@ -5,19 +5,21 @@ class FaceScanVitalController {
 
     addFaceScanVitalData = async (request, context) => {
         try {
-            const userId = context.user?._id;
             
-            if (!userId) {
+            const requestData = await request.json() || {};
+            
+            // Basic validation for required fields
+            if (!requestData.heart_rate && !requestData.bpm) {
                 return {
-                    status: 401,
+                    status: 400,
                     jsonBody: {
                         success: false,
-                        message: 'User not authenticated'
+                        message: 'Heart rate is required'
                     }
                 };
             }
 
-            const result = await FaceScanVitalService.addFaceScanVitalData(await request.json() || {}, userId);
+            const result = await FaceScanVitalService.addFaceScanVitalData(requestData);
             
             return {
                 status: 200,
@@ -121,20 +123,9 @@ class FaceScanVitalController {
                 };
             }
 
-            // Assuming you have a method in your service to get the latest entry
-            const result = await FaceScanVitalService.getLatestFaceScanVitalData(userId);
+            const result = await FaceScanVitalService.getLatestFaceScanVitalData(userId);   
 
-            // If no data found, return 404
-            if (!result) {
-                return {
-                    status: 404,
-                    jsonBody: {
-                        success: false,
-                        message: 'No face scan vital data found'
-                    }
-                };
-            }
-
+            // Remove health risk summary additions for clean response
             return {
                 status: 200,
                 jsonBody: {
@@ -347,6 +338,275 @@ class FaceScanVitalController {
                 }
             };
         }
+    }
+
+    // Add these methods to your FaceScanVitalController class
+    getFaceScans = async (request, context) => {
+        try {
+            const userId = request.query.userId;
+            
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User not authenticated'
+                    }
+                };
+            }
+
+            const result = await FaceScanVitalService.getFaceScans(userId);
+
+            if(result.length === 0) {
+                return {
+                    status: 200,
+                    jsonBody: {
+                        success: false,
+                        message: 'No face scan records found'
+                    }
+                };
+            }
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: result,
+                    message: 'Face scans retrieved successfully',
+                    count: result.length
+                }
+            };
+        } catch (error) {
+            const err = logError('getFaceScans', error, { userId: request.params.userId });
+
+            if (err.message === 'No face scan records found') {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: 'No face scan records found'
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to fetch face scans'
+                }
+            };
+        }
+    }
+
+    getFaceScanVitals = async (request, context) => {
+        try {
+            const logId = request.query.logId;
+            
+            // Optional query parameters
+            const limit = parseInt(request.query?.limit) || 10;
+            const page = parseInt(request.query?.page) || 1;
+            const startDate = request.query?.startDate;
+            const endDate = request.query?.endDate;
+
+            if (limit < 1 || limit > 100) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Limit must be between 1 and 100'
+                    }
+                };
+            }
+
+            const result = await FaceScanVitalService.getFaceScanVitals(logId, {
+                limit,
+                page,
+                startDate,
+                endDate
+            });
+            
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: result.data,
+                    pagination: result.pagination,
+                    summary: result.summary,
+                    message: 'Face scan vitals retrieved successfully'
+                }
+            };
+        } catch (error) {
+            const err = logError('getFaceScanVitals', error, { 
+                userId: request.params.logId,
+                query: request.query 
+            });
+
+            if (err.message === 'No face scan vital records found') {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: 'No face scan vital records found'
+                    }
+                };
+            }
+
+            if (err.message.includes('Invalid date')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: err.message
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to fetch face scan vitals'
+                }
+            };
+        }
+    }
+
+    // New endpoint for getting vital trends/analytics
+    getVitalTrends = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User not authenticated'
+                    }
+                };
+            }
+
+            const days = parseInt(request.query?.days) || 30;
+            
+            if (days < 1 || days > 365) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Days parameter must be between 1 and 365'
+                    }
+                };
+            }
+
+            const result = await FaceScanVitalService.getVitalTrends(userId, days);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: result,
+                    message: `Vital trends for the last ${days} days retrieved successfully`
+                }
+            };
+
+        } catch (error) {
+            const err = logError('getVitalTrends', error, { 
+                userId: context.user?._id,
+                days: request.query?.days 
+            });
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to fetch vital trends'
+                }
+            };
+        }
+    }
+
+    // New endpoint for health risk summary
+    getHealthRiskSummary = async (request, context) => {
+        try {
+            const userId = context.user?._id;
+            
+            if (!userId) {
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User not authenticated'
+                    }
+                };
+            }
+
+            const latestData = await FaceScanVitalService.getLatestFaceScanVitalData(userId);
+
+            if (!latestData) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: 'No face scan data found'
+                    }
+                };
+            }
+
+            const riskSummary = FaceScanVitalService.getHealthRiskSummary(latestData);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: riskSummary,
+                    message: 'Health risk summary retrieved successfully'
+                }
+            };
+
+        } catch (error) {
+            const err = logError('getHealthRiskSummary', error, { userId: context.user?._id });
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to fetch health risk summary'
+                }
+            };
+        }
+    }
+
+    // Helper method to validate new scan data format
+    _validateNewScanFormat(data) {
+        const errors = [];
+
+        // Validate vitals structure
+        if (data.vitals && data.vitals.status === 'completed') {
+            if (!data.vitals.data || typeof data.vitals.data.heart_rate !== 'number') {
+                errors.push('Invalid vitals data structure');
+            }
+        }
+
+        // Validate spo2_bp structure
+        if (data.spo2_bp && data.spo2_bp.status === 'completed') {
+            if (!data.spo2_bp.data || typeof data.spo2_bp.data.spo2 !== 'number') {
+                errors.push('Invalid SpO2/BP data structure');
+            }
+        }
+
+        // Validate advanced_predictions structure
+        if (data.advanced_predictions && data.advanced_predictions.status === 'completed') {
+            const predictions = data.advanced_predictions.data;
+            if (!predictions || typeof predictions.aafma_risk !== 'number') {
+                errors.push('Invalid advanced predictions data structure');
+            }
+        }
+
+        return {
+            isValid: errors.length === 0,
+            message: errors.length > 0 ? errors.join(', ') : 'Valid data format'
+        };
     }
 }
 

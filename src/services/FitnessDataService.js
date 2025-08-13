@@ -1072,19 +1072,18 @@ class FitnessService {
         }
     }
 
-    static async getFitnessDataForCurrentDay(userId){
+    static async getFitnessDataForLast24Hours(userId) {
         try {
-            // Get today's start and end timestamps
-            const today = new Date();
-            const startOfDay = new Date(today.setUTCHours(18, 30, 0, 0)); 
-            const endOfDay = new Date(today.setUTCHours(47, 29, 59, 999)); 
-            console.log("getFitnessDataForCurrentDay",startOfDay, endOfDay);
+            // Get last 24 hours timestamps
+            const now = new Date();
+            const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+            
             const fitnessData = await FitnessData.findOne(
                 {
                     userId: userId,
                     date: {
-                        $gte: startOfDay,
-                        $lte: endOfDay
+                        $gte: twentyFourHoursAgo,
+                        $lte: now
                     }
                 },
                 {
@@ -1094,45 +1093,53 @@ class FitnessService {
                     'steps.totalDistance': 1,
                     'steps.totalMoveMinutes': 1,
                     'steps.averageStepLength': 1,
-    
+
                     // Water data
                     'water.entries': 1,
                     'water.totalIntake': 1,
                     'water.targetIntake': 1,
-    
+
                     // Heart rate data
                     'heartRate.readings': 1,
                     'heartRate.averageBpm': 1,
-    
+
                     // Sleep data
                     'sleep.sessions': 1,
                     'sleep.totalSleepDuration': 1,
-    
+
                     // Vitals data
                     'vitals.bloodPressure': 1,
                     'vitals.bodyTemperature': 1,
                     'vitals.oxygenSaturation': 1,
                     'vitals.respiratoryRate': 1,
-    
+
                     // Respiratory data
                     'respiratory.readings': 1,
                     'respiratory.averageRate': 1,
                     'respiratory.maxRate': 1,
                     'respiratory.minRate': 1,
                     'respiratory.restingRate': 1,
-    
+
                     // General fields
                     'date': 1,
                     'syncSource': 1,
                     'isActive': 1,
                     'metadata': 1
+                },
+                {
+                    sort: { date: -1 } // Get the most recent data first
                 }
             ).lean();
-    
-            // If no data exists for today, return structured empty data
+
+            // If no data exists for last 24 hours, return structured empty data
             if (!fitnessData) {
                 return {
                     date: new Date(),
+                    timeRange: {
+                        from: twentyFourHoursAgo,
+                        to: now,
+                        duration: '24 hours'
+                    },
                     steps: {
                         totalSteps: 0,
                         stepsByHour: [],
@@ -1182,29 +1189,94 @@ class FitnessService {
                     }
                 };
             }
-    
-            // Return the found data with proper structure
+
+            // Filter heart rate and respiratory readings to last 24 hours
+            const filterByLast24Hours = (readings) => {
+                if (!readings || !Array.isArray(readings)) return [];
+                return readings.filter(reading => {
+                    const readingTime = new Date(reading.timestamp || reading.time);
+                    return readingTime >= twentyFourHoursAgo && readingTime <= now;
+                });
+            };
+
+            // Filter water entries to last 24 hours
+            const filterWaterEntries = (entries) => {
+                if (!entries || !Array.isArray(entries)) return [];
+                return entries.filter(entry => {
+                    const entryTime = new Date(entry.timestamp || entry.time);
+                    return entryTime >= twentyFourHoursAgo && entryTime <= now;
+                });
+            };
+
+            // Filter sleep sessions to last 24 hours
+            const filterSleepSessions = (sessions) => {
+                if (!sessions || !Array.isArray(sessions)) return [];
+                return sessions.filter(session => {
+                    const sessionStart = new Date(session.startTime);
+                    const sessionEnd = new Date(session.endTime);
+                    // Include sessions that overlap with the last 24 hours
+                    return (sessionStart <= now && sessionEnd >= twentyFourHoursAgo);
+                });
+            };
+
+            // Filter step sessions to last 24 hours
+            const filterStepSessions = (stepSessions) => {
+                if (!stepSessions || !Array.isArray(stepSessions)) return [];
+                return stepSessions.filter(session => {
+                    const sessionStart = new Date(session.startTime);
+                    const sessionEnd = new Date(session.endTime);
+                    // Include sessions that overlap with the last 24 hours
+                    return (sessionStart <= now && sessionEnd >= twentyFourHoursAgo);
+                });
+            };
+
+            // Filter and calculate totals for last 24 hours
+            const filteredHeartRateReadings = filterByLast24Hours(fitnessData.heartRate?.readings);
+            const filteredRespiratoryReadings = filterByLast24Hours(fitnessData.respiratory?.readings);             
+            const filteredWaterEntries = filterWaterEntries(fitnessData.water?.entries);
+            const filteredSleepSessions = filterSleepSessions(fitnessData.sleep?.sessions);
+            const filteredStepSessions = filterStepSessions(fitnessData.steps?.stepsByHour);
+            // Calculate totals for filtered data
+            const totalWaterIntake = filteredWaterEntries.reduce((sum, entry) => sum + (entry.amount || 0), 0);
+            const totalStepsLast24h = filteredStepSessions.reduce((sum, session) => sum + (session.steps || 0), 0);
+            const totalDistanceLast24h = filteredStepSessions.reduce((sum, session) => sum + (session.distance || 0), 0);
+            const totalMoveMinutesLast24h = filteredStepSessions.reduce((sum, session) => sum + (session.moveMinutes || 0), 0);
+            const averageHeartRate = filteredHeartRateReadings.length > 0 
+                ? filteredHeartRateReadings.reduce((sum, reading) => sum + reading.bpm, 0) / filteredHeartRateReadings.length 
+                : 0;
+            const averageRespiratoryRate = filteredRespiratoryReadings.length > 0 
+                ? filteredRespiratoryReadings.reduce((sum, reading) => sum + reading.rate, 0) / filteredRespiratoryReadings.length 
+                : 0;
+
+            // Return the filtered data with proper structure
             return {
                 date: fitnessData.date,
+                timeRange: {
+                    from: twentyFourHoursAgo,
+                    to: now,
+                    duration: '24 hours'
+                },
                 steps: {
-                    totalSteps: fitnessData.steps?.totalSteps || 0,
-                    stepsByHour: fitnessData.steps?.stepsByHour || [],
-                    totalDistance: fitnessData.steps?.totalDistance || 0,
-                    totalMoveMinutes: fitnessData.steps?.totalMoveMinutes || 0,
-                    averageStepLength: fitnessData.steps?.averageStepLength || 0
+                    totalSteps: totalStepsLast24h,
+                    stepsByHour: filteredStepSessions, // Now contains filtered step sessions
+                    totalDistance: totalDistanceLast24h,
+                    totalMoveMinutes: totalMoveMinutesLast24h,
+                    averageStepLength: totalStepsLast24h > 0 ? (totalDistanceLast24h / totalStepsLast24h) : 0,
+                    sessionCount: filteredStepSessions.length
                 },
                 water: {
-                    entries: fitnessData.water?.entries || [],
-                    totalIntake: fitnessData.water?.totalIntake || 0,
+                    entries: filteredWaterEntries,
+                    totalIntake: totalWaterIntake,
                     targetIntake: fitnessData.water?.targetIntake || 2000
                 },
                 heartRate: {
-                    readings: fitnessData.heartRate?.readings || [],
-                    averageBpm: fitnessData.heartRate?.averageBpm || 0
+                    readings: filteredHeartRateReadings,
+                    averageBpm: Math.round(averageHeartRate)
                 },
                 sleep: {
-                    sessions: fitnessData.sleep?.sessions || [],
-                    totalSleepDuration: fitnessData.sleep?.totalSleepDuration || 0
+                    sessions: filteredSleepSessions,
+                    totalSleepDuration: filteredSleepSessions.reduce((sum, session) => 
+                        sum + (session.duration || 0), 0)
                 },
                 vitals: {
                     bloodPressure: {
@@ -1216,30 +1288,33 @@ class FitnessService {
                     respiratoryRate: fitnessData.vitals?.respiratoryRate || 0
                 },
                 respiratory: {
-                    readings: fitnessData.respiratory?.readings || [],
-                    averageRate: fitnessData.respiratory?.averageRate || 0,
-                    maxRate: fitnessData.respiratory?.maxRate || 0,
-                    minRate: fitnessData.respiratory?.minRate || 0,
+                    readings: filteredRespiratoryReadings,
+                    averageRate: Math.round(averageRespiratoryRate),
+                    maxRate: filteredRespiratoryReadings.length > 0 
+                        ? Math.max(...filteredRespiratoryReadings.map(r => r.rate)) : 0,
+                    minRate: filteredRespiratoryReadings.length > 0 
+                        ? Math.min(...filteredRespiratoryReadings.map(r => r.rate)) : 0,
                     restingRate: fitnessData.respiratory?.restingRate || 0
                 },
                 syncSource: fitnessData.syncSource,
                 isActive: fitnessData.isActive,
-                metadata: fitnessData.metadata || {
-                    lastSyncTime: new Date(),
-                    syncStatus: 'SUCCESS',
-                    syncDetails: {
-                        dataTypes: [],
-                        processedAt: new Date(),
-                        rawResponseSize: 0
+                metadata: {
+                    ...fitnessData.metadata,
+                    filteredData: {
+                        heartRateReadings: filteredHeartRateReadings.length,
+                        respiratoryReadings: filteredRespiratoryReadings.length,
+                        waterEntries: filteredWaterEntries.length,
+                        sleepSessions: filteredSleepSessions.length,
+                        stepSessions: filteredStepSessions.length
                     }
                 }
             };
-    
+
         } catch (error) {
-            console.error('Error fetching current day fitness data:', error);
+            console.error('Error fetching last 24 hours fitness data:', error);
             throw error;
         }
-    };
+    }
 }
 
 module.exports = FitnessService;

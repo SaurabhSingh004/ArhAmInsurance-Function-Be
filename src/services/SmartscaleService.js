@@ -6,6 +6,7 @@ const userModel = require('../models/userProfile');
 const UserService = require('./UserService');
 const metricsModel = require('../models/smartscaleUserData');
 const smartscaleMetricsHelper = require('../utils/smartScaleMetricsHelper');
+const StreakService = require('./StreakService');
 class SmartscaleService {
     static async addManualWeightEntry(userId, userData) {
         try {
@@ -16,6 +17,7 @@ class SmartscaleService {
             {
                 const updatedata = { profile: { weight: metrics.weight } };
                 await UserService.updateUserProfile(userId, updatedata);
+                await StreakService.syncWeightStreakData(userId, Date.now());
             }
             
             return await metrics.save();

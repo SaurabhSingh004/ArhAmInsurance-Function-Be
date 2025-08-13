@@ -30,6 +30,20 @@ const bloodGlucoseStreakSchema = new Schema({
     lastUpdated: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
   });
+
+  const weightStreakSchema = new Schema({
+    daily_count: { type: Number, default: 0 },
+    targetDaily: { type: Number, default: 3 },    // "Log your weight 3 times a day"
+    targetWeekly: { type: Number, default: 18 },    // "Log weight at least 18 times during the week"
+    targetMonthly: { type: Number, default: 80 },   // "Log your weight at least 80 times this month"
+    total_count: { type: Number, default: 0 },
+    currentDailyStreak: { type: Number, default: 0 },
+    currentWeeklyStreak: { type: Number, default: 0 },
+    currentMonthlyStreak: { type: Number, default: 0 },
+    dailyCompleted: { type: Boolean, default: false },
+    lastUpdated: { type: Date, default: Date.now },
+    createdAt: { type: Date, default: Date.now }
+  });
   
 
 const workoutStreakSchema = new Schema({
@@ -98,7 +112,11 @@ const userStreakSchema = new Schema(
     bloodGlucose: {
         type: bloodGlucoseStreakSchema,
         default: () => ({})
-      },
+    },
+    weight: {
+      type: weightStreakSchema,
+      default: () => ({})
+    },
     lastUpdated: { type: Date, default: Date.now }
   },
   {

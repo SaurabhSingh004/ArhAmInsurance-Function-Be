@@ -7,7 +7,7 @@ const buildFunctionalityRoutes = {
         {
             method: 'GET',
             path: '/feature-build/getAll',
-            middleware: [authenticateToken],
+            middleware: [],
             handler: buildFunctionalityController.getAllBuilds,
             description: 'Get all builds with their features'
         },
@@ -21,21 +21,21 @@ const buildFunctionalityRoutes = {
         {
             method: 'POST',
             path: '/feature-build',
-            middleware: [authenticateToken],
+            middleware: [],
             handler: buildFunctionalityController.addBuildFunctionality,
             description: 'Add or update build functionality'
         },
         {
-            method: 'PUT',
-            path: '/feature-build/:buildId/toggle/:featureName',
-            middleware: [authenticateToken],
+            method: 'PATCH',
+            path: '/feature-build/:buildId',
+            middleware: [],
             handler: buildFunctionalityController.toggleFeature,
             description: 'Toggle a specific feature for a build'
         },
         {
             method: 'DELETE',
-            path: '/feature-build/:buildId/feature/:featureName',
-            middleware: [authenticateToken],
+            path: '/feature-build/:buildId',
+            middleware: [],
             handler: buildFunctionalityController.deleteFeature,
             description: 'Delete a specific feature from a build'
         },
@@ -45,11 +45,25 @@ const buildFunctionalityRoutes = {
             middleware: [],
             handler: buildFunctionalityController.isFeatureEnabled,
             description: 'Check if a specific feature is enabled for a build (public access)'
+        },
+        {
+            method: 'DELETE',
+            path: '/feature-build/delete/:buildNumber',
+            middleware: [],
+            handler: buildFunctionalityController.deleteBuildFunctionality,
+            description: 'Delete build functionality if inactive'
+        },
+        {
+            method: 'PATCH',
+            path: '/feature-build/toggle',
+            middleware: [],
+            handler: buildFunctionalityController.toggleBuildActiveStatus,
+            description: 'Toggle isActive status of a build'
         }
     ],
 
     // Method to register all build functionality routes with the router
-    registerRoutes: function(router) {
+    registerRoutes: function (router) {
         this.routes.forEach(route => {
             const { method, path, middleware, handler } = route;
             if (middleware && middleware.length > 0) {

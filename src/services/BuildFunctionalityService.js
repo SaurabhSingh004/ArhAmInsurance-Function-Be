@@ -229,7 +229,8 @@ class BuildFunctionalityService {
         features: buildItem.features.map(feature => ({
           name: feature.name,
           enabled: feature.enabled
-        }))
+        })),
+        isActive: buildItem.isActive
       }));
 
       return formattedBuilds;

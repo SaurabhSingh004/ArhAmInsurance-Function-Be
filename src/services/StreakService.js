@@ -516,6 +516,117 @@ class StreakService {
     await streak.save();
     return streak;
   }
+
+  static async syncWeightStreakData(userId, currentDate) {
+      console.log(`Sync Weight started for userId: ${userId}, date: ${currentDate}`);
+      const today = moment(currentDate).startOf('day');
+      let streak = await streakModel.findOne({ userId });
+
+      // If no streak document exists or weight subdocument is missing, initialize it.
+      if (!streak) {
+          console.log(`No streak found for userId: ${userId}. Creating new weight streak.`);
+          const newStreak = new streakModel({
+              userId,
+              weight: {
+                  daily_count: 1,
+                  targetDaily: 1,    // Log weight once a day
+                  targetWeekly: 5,   // Log at least 5 times per week
+                  targetMonthly: 20, // Log at least 20 times per month
+                  total_count: 1,
+                  currentDailyStreak: 0,
+                  currentWeeklyStreak: 0,
+                  currentMonthlyStreak: 0,
+                  dailyCompleted: false,
+                  lastUpdated: Date.now(),
+                  createdAt: Date.now()
+              },
+              lastUpdated: Date.now()
+          });
+          streak = await newStreak.save();
+          return streak;
+      }
+
+      if (!streak.weight) {
+          console.log(`Streak exists but weight data missing for userId: ${userId}. Initializing weight.`);
+          streak = await streakModel.findOneAndUpdate(
+              { userId },
+              {
+                  $set: {
+                      weight: {
+                          daily_count: 1,
+                          targetDaily: 1,
+                          targetWeekly: 5,
+                          targetMonthly: 20,
+                          total_count: 1,
+                          currentDailyStreak: 0,
+                          currentWeeklyStreak: 0,
+                          currentMonthlyStreak: 0,
+                          dailyCompleted: false,
+                          lastUpdated: Date.now(),
+                          createdAt: Date.now()
+                      }
+                  }
+              },
+              { new: true }
+          );
+      }
+
+
+      console.log(`Weight streak found for userId: ${userId}.`);
+      console.log(`weight log: ${streak}`);
+
+      const lastUpdatedWeight = moment(streak.weight.lastUpdated).startOf('day');
+      console.log(`Last updated: ${lastUpdatedWeight.format()}, Today: ${today.format()}`);
+
+      if (today.isSame(lastUpdatedWeight, 'day')) {
+          streak.weight.daily_count += 1;
+          console.log(`Same day: weight daily_count increased to ${streak.weight.daily_count}`);
+      } else if (today.diff(lastUpdatedWeight, 'days') === 1) {
+          console.log(`Consecutive day: resetting weight daily_count to 1`);
+          streak.weight.daily_count = 1;
+          streak.weight.dailyCompleted = false;
+      } else {
+          console.log(`Inactivity detected: resetting weight streaks`);
+          streak.weight.daily_count = 1;
+          streak.weight.currentDailyStreak = 0;
+          streak.weight.currentWeeklyStreak = 0;
+          streak.weight.currentMonthlyStreak = 0;
+          streak.weight.dailyCompleted = false;
+      }
+
+      // Daily requirement: log weight once per day.
+      if (!streak.weight.dailyCompleted && streak.weight.daily_count >= streak.weight.targetDaily) {
+          streak.weight.dailyCompleted = true;
+          const weightLogReward = await TaskService.getTaskByFeatureType("Log Weight");
+          await UserRewardService.updateDailyTaskCompletion(userId, weightLogReward._id, weightLogReward.points);
+          streak.weight.currentDailyStreak += 1;
+          console.log(`Weight daily streak achieved. currentDailyStreak: ${streak.weight.currentDailyStreak}`);
+          // Award daily weight achievement (10 points)
+          await UserRewardService.addStreakAchievement(userId, 'daily', streak.weight.currentDailyStreak, 10);
+
+          // Weekly: if total_count for weight logs reaches targetWeekly, award weekly achievement.
+          if (streak.weight.total_count >= streak.weight.targetWeekly) {
+              streak.weight.currentWeeklyStreak += 1;
+              console.log(`Weight weekly streak achieved. currentWeeklyStreak: ${streak.weight.currentWeeklyStreak}`);
+              await UserRewardService.addStreakAchievement(userId, 'weekly', streak.weight.currentWeeklyStreak, 50);
+          }
+      }
+
+      streak.weight.total_count += 1;
+      console.log(`Weight total_count incremented to ${streak.weight.total_count}`);
+
+      // Monthly: if total_count for weight logs reaches targetMonthly within the same month.
+      if (streak.weight.total_count >= streak.weight.targetMonthly && await StreakService.isSameMonth(Date.now(), streak.weight.createdAt)) {
+          streak.weight.currentMonthlyStreak += 1;
+          console.log(`Weight monthly streak achieved. currentMonthlyStreak: ${streak.weight.currentMonthlyStreak}`);
+          await UserRewardService.addStreakAchievement(userId, 'monthly', streak.weight.currentMonthlyStreak, 100);
+      }
+
+      streak.weight.lastUpdated = Date.now();
+      console.log(`Weight sync completed for userId: ${userId}. Saving changes.`);
+      await streak.save();
+      return streak;
+  }
 }
 
 module.exports = StreakService;

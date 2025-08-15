@@ -35,6 +35,8 @@ const goalsRoutes = require('./goalsRoutes');
 const fitnessRoutes = require('./fitnessRoutes');
 const dailyChecklistRoutes = require('./dailyChecklists');
 const adminRoutes =require('./adminRoutes');
+const insuranceRoutes = require('./insuranceRoutes');
+const claimRoutes = require('./claimRoutes');
 
 class Router {
     constructor() {
@@ -45,6 +47,8 @@ class Router {
 
     setupRoutes() {
         // Register all converted routes
+        claimRoutes.registerRoutes(this);
+        insuranceRoutes.registerRoutes(this);
         wellnessRoutes.registerRoutes(this);
         emergencyRoutes.registerRoutes(this);
         userRewardRoutes.registerRoutes(this);

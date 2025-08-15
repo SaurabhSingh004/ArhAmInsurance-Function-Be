@@ -485,11 +485,17 @@ This email was sent to ${email}
 
     static async loginUser(credentials) {
         try {
+            console.log("credentials: ", credentials);
             const { email, password, appName } = credentials;
 
             const user = await User.findOne({ email: email.toLowerCase() });
             if (!user) {
                 throw new Error('Invalid credentials');
+            }
+            
+            if(!user.password)
+            {
+                throw new Error('Password not set');
             }
 
             const isMatch = await bcrypt.compare(password, user.password);

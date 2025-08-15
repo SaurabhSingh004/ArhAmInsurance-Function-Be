@@ -5,6 +5,7 @@ const WebSocketService = require('./websocketService');
 const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');
+const mongoose = require('mongoose');
 
 class InsuranceService {
     constructor() {
@@ -641,7 +642,7 @@ class InsuranceService {
     async getInsuranceStats(userId) {
         try {
             const stats = await Insurance.aggregate([
-                { $match: { userId: new require('mongoose').Types.ObjectId(userId) } },
+                { $match: { userId: new mongoose.Types.ObjectId(userId) } },
                 {
                     $group: {
                         _id: null,

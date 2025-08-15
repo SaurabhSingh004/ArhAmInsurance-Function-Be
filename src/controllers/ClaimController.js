@@ -648,6 +648,17 @@ class ClaimController {
 
             const stats = await ClaimService.getClaimStats(userId);
 
+            if(!stats) {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: 'No claim statistics found',
+                        data: null
+                    }
+                };
+            }   
+
             return {
                 status: 200,
                 jsonBody: {

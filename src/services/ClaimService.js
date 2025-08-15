@@ -4,7 +4,7 @@ const Insurance = require('../models/insurance');
 const UploadService = require('./UploadService');
 const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');
-
+const mongoose = require('mongoose');
 class ClaimService {
     constructor() {
         this.uploadService = new UploadService();
@@ -379,42 +379,27 @@ class ClaimService {
      */
     async getClaimStats(userId) {
         try {
-            const stats = await Claim.aggregate([
-                { $match: { userId: new require('mongoose').Types.ObjectId(userId) } },
+            const claims = await Claim.find(
+                { userId: new mongoose.Types.ObjectId(userId) },
                 {
-                    $group: {
-                        _id: null,
-                        totalClaims: { $sum: 1 },
-                        submittedClaims: {
-                            $sum: { $cond: [{ $eq: ['$status', 'submitted'] }, 1, 0] }
-                        },
-                        underReviewClaims: {
-                            $sum: { $cond: [{ $eq: ['$status', 'under_review'] }, 1, 0] }
-                        },
-                        approvedClaims: {
-                            $sum: { $cond: [{ $eq: ['$status', 'approved'] }, 1, 0] }
-                        },
-                        rejectedClaims: {
-                            $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] }
-                        },
-                        paidClaims: {
-                            $sum: { $cond: [{ $eq: ['$status', 'paid'] }, 1, 0] }
-                        },
-                        totalClaimAmount: { $sum: '$claimAmount' },
-                        totalApprovedAmount: { $sum: '$approvedAmount' }
-                    }
+                    claimId: 1,
+                    policyNumber: 1,
+                    claimType: 1,
+                    claimAmount: 1,
+                    currency: 1,
+                    reportedDate: 1,
+                    status: 1,
+                    incidentDate: 1,
+                    priority: 1,
+                    _id: 0 // Exclude the MongoDB _id field
                 }
-            ]);
+            )
+            .sort({ reportedDate: -1 }) // Sort by reportedDate in descending order (newest first)
+            .lean(); // Use lean() for better performance since we don't need Mongoose document methods
 
-            return stats[0] || {
-                totalClaims: 0,
-                submittedClaims: 0,
-                underReviewClaims: 0,
-                approvedClaims: 0,
-                rejectedClaims: 0,
-                paidClaims: 0,
-                totalClaimAmount: 0,
-                totalApprovedAmount: 0
+            return {
+                totalClaims: claims.length,
+                claims: claims || []
             };
 
         } catch (error) {

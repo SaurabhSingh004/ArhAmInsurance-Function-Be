@@ -12,6 +12,13 @@ const insuranceRoutes = {
             description: 'Upload and process an insurance document'
         },
         {
+            method: 'PUT',
+            path: '/insurance/:insuranceId',
+            middleware: [authenticateToken],
+            handler: insuranceController.updateInsuranceDetails,
+            description: 'Update insurance details'
+        },
+        {
             method: 'GET',
             path: '/insurance/:insuranceId',
             middleware: [authenticateToken],

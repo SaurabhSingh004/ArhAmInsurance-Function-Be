@@ -11,7 +11,7 @@ class InsuranceController {
         try {
             // Extract user ID from request (assuming it's set by auth middleware)
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -23,9 +23,9 @@ class InsuranceController {
             }
 
             const result = await InsuranceService.uploadInsuranceDocument(
-                request.files.file.data, 
-                request.files.file.name || request.files.file.originalname, 
-                request.files.file.mimetype, 
+                request.files.file.data,
+                request.files.file.name || request.files.file.originalname,
+                request.files.file.mimetype,
                 userId
             );
 
@@ -36,7 +36,7 @@ class InsuranceController {
 
         } catch (error) {
             context.error('Error uploading insurance document:', error);
-            
+
             // Handle specific error types
             if (error.message.includes('not active')) {
                 return {
@@ -64,7 +64,7 @@ class InsuranceController {
             }
 
             // Handle validation and business logic errors
-            if (error.message.includes('Failed to upload') || 
+            if (error.message.includes('Failed to upload') ||
                 error.message.includes('Unsupported file type') ||
                 error.message.includes('exceeds maximum size') ||
                 error.message.includes('Missing required field') ||
@@ -176,7 +176,7 @@ class InsuranceController {
         } catch (error) {
             context.error('Error initializing insurance query:', error);
 
-            if (error.message.includes('not found') || 
+            if (error.message.includes('not found') ||
                 error.message.includes('No document found')) {
                 return {
                     status: 404,
@@ -693,6 +693,120 @@ class InsuranceController {
         }
     }
 
+    updateInsuranceDetails = async (request, context) => {
+        try {
+            const { insuranceId } = request.params || {};
+            const updateData = await request.json() || {};
+            const userId = context.user?._id;
+
+            // Validate required parameters
+            if (!insuranceId) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Insurance ID is required',
+                        data: null
+                    }
+                };
+            }
+
+            if (!updateData || Object.keys(updateData).length === 0) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: 'Update data is required',
+                        data: null
+                    }
+                };
+            }
+
+            // Check for protected fields that shouldn't be updated
+            const protectedFields = ['_id', 'userId', 'policyId', 'docUrl', 'azureBlobName', 'chatId', 'processingStatus', 'createdAt', 'updatedAt'];
+            const invalidFields = Object.keys(updateData).filter(field => protectedFields.includes(field));
+
+            if (invalidFields.length > 0) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: `Cannot update protected fields: ${invalidFields.join(', ')}`,
+                        data: null
+                    }
+                };
+            }
+
+            // Call service method
+            const updatedInsurance = await InsuranceService.updateInsuranceDetails(insuranceId, updateData, userId);
+
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    data: updatedInsurance,
+                    message: 'Insurance details updated successfully'
+                }
+            };
+
+        } catch (error) {
+            context.error('Error updating insurance details:', error);
+
+            // Handle not found errors
+            if (error.message === 'Insurance not found') {
+                return {
+                    status: 404,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            // Handle validation and client errors
+            if (error.message.includes('Invalid') ||
+                error.message.includes('required') ||
+                error.message.includes('must be') ||
+                error.message.includes('Validation failed') ||
+                error.message.includes('already exists') ||
+                error.message.includes('Duplicate') ||
+                error.message.includes('No valid fields') ||
+                error.message.includes('Cannot update protected fields')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            // Handle database connection errors
+            if (error.message.includes('Database connection error')) {
+                return {
+                    status: 503,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            // Handle any other server errors
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to update insurance details',
+                    data: null
+                }
+            };
+        }
+    }
+
     /**
      * Delete insurance
      */
@@ -836,9 +950,9 @@ class InsuranceController {
             let files = null;
             if (request.files && Object.keys(request.files).length > 0) {
                 context.log('Available file fields:', Object.keys(request.files));
-                
+
                 let documents = [];
-                
+
                 // Check for specific field names first
                 if (request.files.files) {
                     documents = Array.isArray(request.files.files) ? request.files.files : [request.files.files];
@@ -898,8 +1012,8 @@ class InsuranceController {
             const comparisonMetric = request.query?.comparisonMetric || 'compare';
 
             const result = await InsuranceComparisonService.compareInsuranceDocuments(
-                files, 
-                userId, 
+                files,
+                userId,
                 comparisonMetric
             );
 
@@ -912,7 +1026,7 @@ class InsuranceController {
             context.error('Error comparing insurance documents:', error);
 
             // Handle specific error types
-            if (error.message.includes('At least 2') || 
+            if (error.message.includes('At least 2') ||
                 error.message.includes('Maximum') ||
                 error.message.includes('required for comparison') ||
                 error.message.includes('No files provided') ||

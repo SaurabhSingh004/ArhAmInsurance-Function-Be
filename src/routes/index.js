@@ -37,7 +37,8 @@ const dailyChecklistRoutes = require('./dailyChecklists');
 const adminRoutes =require('./adminRoutes');
 const insuranceRoutes = require('./insuranceRoutes');
 const claimRoutes = require('./claimRoutes');
-
+const emiRoutes = require('./emiRoutes');
+const medicalExpenseRoutes = require('./medicalExpenseRoutes');
 class Router {
     constructor() {
         this.routes = new Map();
@@ -47,6 +48,8 @@ class Router {
 
     setupRoutes() {
         // Register all converted routes
+        medicalExpenseRoutes.registerRoutes(this);
+        emiRoutes.registerRoutes(this);
         claimRoutes.registerRoutes(this);
         insuranceRoutes.registerRoutes(this);
         wellnessRoutes.registerRoutes(this);

@@ -37,7 +37,7 @@ class InsuranceService {
                 allowedTypes: [
                     'application/pdf',
                     'image/jpeg',
-                    'image/jpg', 
+                    'image/jpg',
                     'image/png',
                     'image/tiff',
                     'image/bmp'
@@ -49,7 +49,7 @@ class InsuranceService {
             // Step 2: Upload document to Azure Blob Storage
             console.log('Step 2: Uploading document to Azure Blob Storage');
             const folderPath = `arham-insurance-documents/${userId}`;
-            
+
             uploadedFile = await this.uploadService.uploadRawFile(
                 fileBuffer,
                 filename,
@@ -63,7 +63,7 @@ class InsuranceService {
                     companyCode: 'AIBL'
                 }
             );
-            
+
             if (!uploadedFile || !uploadedFile.url) {
                 throw new Error('Failed to upload document to Azure storage');
             }
@@ -97,8 +97,8 @@ class InsuranceService {
             // Step 6: Create insurance record in database
             console.log('Step 6: Creating insurance record in database', structuredData);
             const insuranceRecord = await this.createInsuranceRecord(
-                userId, 
-                structuredData.insuranceData, 
+                userId,
+                structuredData.insuranceData,
                 uploadedFile,
                 chatId
             );
@@ -217,19 +217,19 @@ class InsuranceService {
         } catch (error) {
             if (error.response) {
                 console.error('AI service error response:', error.response.data);
-                
+
                 // Check if it's a document validation error (invalid document type)
                 if (this.isInvalidDocumentError(error.response)) {
                     throw new Error('Invalid document type. Please upload a valid insurance policy document.');
                 }
-                
+
                 // Check for other client-side errors that should be treated as bad requests
                 if (error.response.status >= 400 && error.response.status < 500) {
                     // Try to extract meaningful error message from response
                     const errorMessage = this.extractErrorMessage(error.response.data);
                     throw new Error(errorMessage || 'Invalid document or request. Please check your file and try again.');
                 }
-                
+
                 // Server errors (500+)
                 throw new Error(`AI service error: ${error.response.status} - ${error.response.statusText}`);
             } else if (error.request) {
@@ -247,11 +247,11 @@ class InsuranceService {
      */
     isInvalidDocumentError(errorResponse) {
         if (!errorResponse || !errorResponse.data) return false;
-        
-        const errorData = typeof errorResponse.data === 'string' 
-            ? errorResponse.data.toLowerCase() 
+
+        const errorData = typeof errorResponse.data === 'string'
+            ? errorResponse.data.toLowerCase()
             : JSON.stringify(errorResponse.data).toLowerCase();
-        
+
         // Check for common patterns that indicate invalid document type
         const invalidDocumentPatterns = [
             'not an insurance',
@@ -267,7 +267,7 @@ class InsuranceService {
             'unrecognized document format',
             'document format not supported for insurance'
         ];
-        
+
         return invalidDocumentPatterns.some(pattern => errorData.includes(pattern));
     }
 
@@ -281,19 +281,19 @@ class InsuranceService {
             if (typeof errorData === 'string') {
                 return errorData;
             }
-            
+
             if (errorData && typeof errorData === 'object') {
                 // Try common error message fields
-                return errorData.message || 
-                       errorData.error || 
-                       errorData.detail || 
-                       errorData.description ||
-                       null;
+                return errorData.message ||
+                    errorData.error ||
+                    errorData.detail ||
+                    errorData.description ||
+                    null;
             }
         } catch (e) {
             console.error('Error extracting error message:', e);
         }
-        
+
         return null;
     }
 
@@ -332,7 +332,7 @@ class InsuranceService {
                 startDate = new Date(insuranceData.coveragePeriod.startDate);
                 endDate = new Date(insuranceData.coveragePeriod.endDate);
                 birthDate = new Date(insuranceData.beneficiary.birthDate);
-                
+
                 if (isNaN(startDate.getTime())) {
                     throw new Error('Invalid coverage start date format');
                 }
@@ -342,7 +342,7 @@ class InsuranceService {
                 if (isNaN(birthDate.getTime())) {
                     throw new Error('Invalid beneficiary birth date format');
                 }
-                
+
                 if (startDate >= endDate) {
                     throw new Error('Coverage start date must be before end date');
                 }
@@ -452,8 +452,8 @@ class InsuranceService {
             }
 
             // If it's already our custom error, re-throw it
-            if (error.message.includes('Missing required field') || 
-                error.message.includes('Invalid') || 
+            if (error.message.includes('Missing required field') ||
+                error.message.includes('Invalid') ||
                 error.message.includes('must be') ||
                 error.message.includes('already exists') ||
                 error.message.includes('You already have')) {
@@ -478,7 +478,7 @@ class InsuranceService {
             if (userId) query.userId = userId;
 
             const insurance = await Insurance.findOne(query);
-            
+
             if (!insurance) {
                 throw new Error('Insurance not found');
             }
@@ -498,7 +498,7 @@ class InsuranceService {
     async getUserInsurances(userId, filters = {}) {
         try {
             const query = { userId, ...filters };
-            
+
             const insurances = await Insurance.find(query)
                 .sort({ createdAt: -1 })
                 .lean();
@@ -512,7 +512,7 @@ class InsuranceService {
     async getFormattedUserInsurances(userId, filters = {}) {
         try {
             const query = { userId, ...filters };
-            
+
             const insurances = await Insurance.find(query)
                 .sort({ createdAt: -1 })
                 .lean();
@@ -583,7 +583,7 @@ class InsuranceService {
 
             const insurance = await Insurance.findOneAndUpdate(
                 { _id: insuranceId, userId },
-                { 
+                {
                     status,
                     ...(status === 'cancelled' && !insurance?.cancelDate ? { cancelDate: new Date() } : {})
                 },
@@ -609,7 +609,7 @@ class InsuranceService {
     async deleteInsurance(insuranceId, userId) {
         try {
             const insurance = await Insurance.findOne({ _id: insuranceId, userId });
-            
+
             if (!insurance) {
                 throw new Error('Insurance not found');
             }
@@ -668,6 +668,198 @@ class InsuranceService {
             };
         } catch (error) {
             throw logError('getInsuranceStats', error, { userId });
+        }
+    }
+
+    async updateInsuranceDetails(insuranceId, updateData, userId) {
+        try {
+            // First, find the existing insurance record
+            const existingInsurance = await Insurance.findOne({ _id: insuranceId, userId });
+
+            if (!existingInsurance) {
+                throw new Error('Insurance not found');
+            }
+
+            // Prepare the update object
+            const updateObject = {};
+
+            // Handle basic fields
+            if (updateData.policyNumber !== undefined) {
+                updateObject.policyNumber = updateData.policyNumber.toString().trim();
+            }
+
+            if (updateData.productName !== undefined) {
+                updateObject.productName = updateData.productName.toString().trim();
+            }
+
+            if (updateData.status !== undefined) {
+                const validStatuses = ['active', 'expired', 'cancelled'];
+                if (!validStatuses.includes(updateData.status)) {
+                    throw new Error('Invalid status. Must be active, expired, or cancelled');
+                }
+                updateObject.status = updateData.status;
+
+                // Add cancelDate if status is being changed to cancelled and it doesn't exist
+                if (updateData.status === 'cancelled' && !existingInsurance.cancelDate) {
+                    updateObject.cancelDate = new Date();
+                }
+            }
+
+            if (updateData.duration !== undefined) {
+                const duration = Number(updateData.duration);
+                if (isNaN(duration) || duration <= 0) {
+                    throw new Error('Duration must be a positive number');
+                }
+                updateObject.duration = duration;
+            }
+
+            if (updateData.coverage !== undefined) {
+                updateObject.coverage = updateData.coverage.toString().trim();
+            }
+
+            // Handle coverage period updates
+            if (updateData.coveragePeriod) {
+                const coveragePeriod = {};
+
+                if (updateData.coveragePeriod.startDate !== undefined) {
+                    const startDate = new Date(updateData.coveragePeriod.startDate);
+                    if (isNaN(startDate.getTime())) {
+                        throw new Error('Invalid coverage start date format');
+                    }
+                    coveragePeriod.startDate = startDate;
+                }
+
+                if (updateData.coveragePeriod.endDate !== undefined) {
+                    const endDate = new Date(updateData.coveragePeriod.endDate);
+                    if (isNaN(endDate.getTime())) {
+                        throw new Error('Invalid coverage end date format');
+                    }
+                    coveragePeriod.endDate = endDate;
+                }
+
+                // Validate that start date is before end date
+                const finalStartDate = coveragePeriod.startDate || existingInsurance.coveragePeriod.startDate;
+                const finalEndDate = coveragePeriod.endDate || existingInsurance.coveragePeriod.endDate;
+
+                if (finalStartDate >= finalEndDate) {
+                    throw new Error('Coverage start date must be before end date');
+                }
+
+                // Use dot notation for nested updates
+                if (coveragePeriod.startDate !== undefined) {
+                    updateObject['coveragePeriod.startDate'] = coveragePeriod.startDate;
+                }
+                if (coveragePeriod.endDate !== undefined) {
+                    updateObject['coveragePeriod.endDate'] = coveragePeriod.endDate;
+                }
+            }
+
+            // Handle beneficiary updates
+            if (updateData.beneficiary) {
+                if (updateData.beneficiary.name !== undefined) {
+                    updateObject['beneficiary.name'] = updateData.beneficiary.name.toString().trim();
+                }
+
+                if (updateData.beneficiary.email !== undefined) {
+                    const email = updateData.beneficiary.email.toString().toLowerCase().trim();
+                    // Basic email validation
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(email)) {
+                        throw new Error('Invalid email format');
+                    }
+                    updateObject['beneficiary.email'] = email;
+                }
+
+                if (updateData.beneficiary.birthDate !== undefined) {
+                    const birthDate = new Date(updateData.beneficiary.birthDate);
+                    if (isNaN(birthDate.getTime())) {
+                        throw new Error('Invalid beneficiary birth date format');
+                    }
+                    updateObject['beneficiary.birthDate'] = birthDate;
+                }
+
+                if (updateData.beneficiary.documentNumber !== undefined) {
+                    updateObject['beneficiary.documentNumber'] = updateData.beneficiary.documentNumber.toString().trim();
+                }
+
+                if (updateData.beneficiary.residenceCountry !== undefined) {
+                    updateObject['beneficiary.residenceCountry'] = updateData.beneficiary.residenceCountry.toString().trim();
+                }
+            }
+
+            // Handle cancel date
+            if (updateData.cancelDate !== undefined) {
+                if (updateData.cancelDate === null || updateData.cancelDate === '') {
+                    updateObject.cancelDate = null;
+                } else {
+                    const cancelDate = new Date(updateData.cancelDate);
+                    if (isNaN(cancelDate.getTime())) {
+                        throw new Error('Invalid cancellation date format');
+                    }
+                    updateObject.cancelDate = cancelDate;
+                }
+            }
+
+            // Check if there are any fields to update
+            if (Object.keys(updateObject).length === 0) {
+                throw new Error('No valid fields provided for update');
+            }
+
+            // Perform the update
+            const updatedInsurance = await Insurance.findOneAndUpdate(
+                { _id: insuranceId, userId },
+                { $set: updateObject },
+                {
+                    new: true,
+                    runValidators: true // Run mongoose validations
+                }
+            );
+
+            if (!updatedInsurance) {
+                throw new Error('Insurance not found');
+            }
+
+            console.log('Insurance record updated successfully:', insuranceId);
+            return updatedInsurance;
+
+        } catch (error) {
+            // Handle MongoDB duplicate key errors
+            if (error.code === 11000) {
+                if (error.keyPattern && error.keyPattern.policyNumber) {
+                    throw new Error(`Insurance policy with number '${updateData?.policyNumber}' already exists`);
+                }
+                const duplicateField = Object.keys(error.keyPattern || {})[0] || 'unknown field';
+                throw new Error(`Duplicate value for ${duplicateField}`);
+            }
+
+            // Handle MongoDB validation errors
+            if (error.name === 'ValidationError') {
+                const validationErrors = Object.values(error.errors).map(err => err.message);
+                throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
+            }
+
+            // Handle MongoDB cast errors
+            if (error.name === 'CastError') {
+                throw new Error(`Invalid data type for field '${error.path}': ${error.message}`);
+            }
+
+            // Handle connection errors
+            if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
+                throw new Error('Database connection error. Please try again later');
+            }
+
+            // If it's already our custom error, re-throw it
+            if (error.message.includes('not found') ||
+                error.message.includes('Invalid') ||
+                error.message.includes('must be') ||
+                error.message.includes('already exists') ||
+                error.message.includes('No valid fields')) {
+                throw error;
+            }
+
+            // Log unexpected errors but don't expose internal details
+            console.error('Unexpected error in updateInsuranceDetails:', error);
+            throw new Error('Failed to update insurance record. Please verify your data and try again');
         }
     }
 }

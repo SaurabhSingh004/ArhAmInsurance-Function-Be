@@ -39,6 +39,7 @@ const insuranceRoutes = require('./insuranceRoutes');
 const claimRoutes = require('./claimRoutes');
 const emiRoutes = require('./emiRoutes');
 const medicalExpenseRoutes = require('./medicalExpenseRoutes');
+const userDocumentRoutes = require('./userDocumentRoutes')
 class Router {
     constructor() {
         this.routes = new Map();
@@ -48,6 +49,7 @@ class Router {
 
     setupRoutes() {
         // Register all converted routes
+        userDocumentRoutes.registerRoutes(this);
         medicalExpenseRoutes.registerRoutes(this);
         emiRoutes.registerRoutes(this);
         claimRoutes.registerRoutes(this);

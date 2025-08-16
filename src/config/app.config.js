@@ -28,5 +28,12 @@ module.exports = {
     gcp_token_uri: process.env.gcp_token_uri,
     gcp_auth_provider_x509_cert_url: process.env.gcp_auth_provider_x509_cert_url,
     gcp_client_x509_cert_url: process.env.gcp_client_x509_cert_url,
-    gcp_universe_domain: process.env.gcp_universe_domain
+    gcp_universe_domain: process.env.gcp_universe_domain,
+
+    
+    // Azure Blob Storage
+    azureStorageAccount: process.env.AZURE_STORAGE_ACCOUNT,
+    azureStorageContainerName: process.env.AZURE_STORAGE_CONTAINER_NAME,
+    azureStorageAccessKey: process.env.AZURE_STORAGE_ACCESS_KEY,
+    azureStorageSASToken: process.env.AZURE_STORAGE_SAS_TOKEN,
 };

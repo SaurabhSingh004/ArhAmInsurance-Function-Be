@@ -108,6 +108,13 @@ const insuranceRoutes = {
             middleware: [authenticateToken],
             handler: insuranceController.compareDocuments,
             description: 'Compare multiple insurance documents'
+        },
+        {
+            method: 'GET',
+            path: '/insurance/types',
+            middleware: [],
+            handler: insuranceController.getInsurancesToBuy,
+            description: 'Get Mauritius insurance companies by type (health, travel, vehicle, cyber, pet, home)'
         }
     ],
 

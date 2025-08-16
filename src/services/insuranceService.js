@@ -6,7 +6,7 @@ const axios = require('axios');
 const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');
 const mongoose = require('mongoose');
-
+const { getInsurancesByType, getAllInsuranceTypes } = require('../utils/insuranceData');
 class InsuranceService {
     constructor() {
         this.uploadService = new UploadService();
@@ -860,6 +860,56 @@ class InsuranceService {
             // Log unexpected errors but don't expose internal details
             console.error('Unexpected error in updateInsuranceDetails:', error);
             throw new Error('Failed to update insurance record. Please verify your data and try again');
+        }
+    }
+
+    async getInsurancesToBuy(type) {
+        try {
+            // If no type specified, return available types
+            if (!type) {
+                return {
+                    success: true,
+                    message: 'Available insurance types',
+                    data: {
+                        availableTypes: getAllInsuranceTypes(),
+                        count: getAllInsuranceTypes().length
+                    }
+                };
+            }
+
+            // Validate insurance type
+            const availableTypes = getAllInsuranceTypes();
+            if (!availableTypes.includes(type.toLowerCase())) {
+                return {
+                    success: false,
+                    message: `Invalid insurance type. Available types: ${availableTypes.join(', ')}`,
+                    data: {
+                        availableTypes,
+                        requestedType: type
+                    }
+                };
+            }
+
+            // Get insurances by type
+            const insurances = getInsurancesByType(type.toLowerCase());
+            
+            return {
+                success: true,
+                message: `${type.charAt(0).toUpperCase() + type.slice(1)} insurances retrieved successfully`,
+                data: {
+                    type: type.toLowerCase(),
+                    insurances,
+                    count: insurances.length,
+                    country: 'Mauritius'
+                }
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                message: 'Error retrieving insurances',
+                error: error.message
+            };
         }
     }
 }

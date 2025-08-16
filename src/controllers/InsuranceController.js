@@ -1065,6 +1065,58 @@ class InsuranceController {
             };
         }
     }
+
+    getInsurancesToBuy = async (request, context) => {
+        try {
+            const { type } = request.query || {};
+
+            const result = await InsuranceService.getInsurancesToBuy(type);
+
+            if (result.success) {
+                return {
+                    status: 200,
+                    jsonBody: {
+                        success: true,
+                        data: result.data,
+                        message: result.message
+                    }
+                };
+            } else {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: result.message,
+                        data: result.data || null
+                    }
+                };
+            }
+
+        } catch (error) {
+            context.error('Error getting insurances:', error);
+
+            // Handle validation errors
+            if (error.message.includes('Invalid') || error.message.includes('required')) {
+                return {
+                    status: 400,
+                    jsonBody: {
+                        success: false,
+                        message: error.message,
+                        data: null
+                    }
+                };
+            }
+
+            return {
+                status: 500,
+                jsonBody: {
+                    success: false,
+                    message: 'Failed to retrieve insurances',
+                    data: null
+                }
+            };
+        }
+    }
 }
 
 module.exports = new InsuranceController();

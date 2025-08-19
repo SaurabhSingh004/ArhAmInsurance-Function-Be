@@ -297,11 +297,11 @@ This email was sent to ${email}
                 password: hashedPassword,
                 walletId: wallet._id,
                 // Add verification fields
-                emailVerified: false,
-                emailVerificationToken: emailToken,
-                emailVerificationExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-                phoneVerified: appName == "ProHealth" ? true : false,
-                phoneVerificationCode: phoneOTP,
+                emailVerified: true,
+                emailVerificationToken: null,
+                emailVerificationExpires: null,
+                phoneVerified: true,
+                phoneVerificationCode: null,
                 createdFrom: appName || constants.APP_NAME,
                 phoneVerificationExpires: phoneOTP ? new Date(Date.now() + 15 * 60 * 1000) : null, // 15 minutes
                 profile: {
@@ -322,54 +322,54 @@ This email was sent to ${email}
             let smsSent = false;
 
             // Send verification emails/SMS if enabled
-            if (process.env.ENABLE_VERIFICATION === 'true') {
-                // Try to send verification email
-                try {
-                    const emailResult = await this.sendVerificationEmail(email, emailToken);
-                    if (emailResult.success) {
-                        emailSent = true;
-                    } else {
-                        console.error('Email verification failed:', emailResult.error);
-                    }
-                } catch (emailError) {
-                    console.error('Email verification sending failed:', emailError.message);
-                }
+            // if (process.env.ENABLE_VERIFICATION === 'true') {
+            //     // Try to send verification email
+            //     try {
+            //         const emailResult = await this.sendVerificationEmail(email, emailToken);
+            //         if (emailResult.success) {
+            //             emailSent = true;
+            //         } else {
+            //             console.error('Email verification failed:', emailResult.error);
+            //         }
+            //     } catch (emailError) {
+            //         console.error('Email verification sending failed:', emailError.message);
+            //     }
 
-                // Send verification SMS if phone number provided
-                const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
-                if (phoneNumber && phoneOTP) {
-                    if (buildFeatures && !buildFeatures.isSmsOtpEnabled) {
-                        user.phoneVerified = true;
-                        user.phoneVerificationCode = null;
-                        user.phoneVerificationExpires = null;
-                        await user.save();
-                        smsSent = true; // Consider it as sent since it's auto-verified
-                    } else {
-                        // Try to send phone verification
-                        try {
-                            const smsResult = await this.sendPhoneVerification(phoneNumber, phoneOTP);
-                            if (smsResult && smsResult.success) {
-                                smsSent = true;
-                            } else {
-                                console.error('SMS verification failed:', smsResult ? smsResult.error : 'Unknown error');
-                            }
-                        } catch (smsError) {
-                            console.error('SMS verification sending failed:', smsError.message);
-                        }
-                    }
-                } else {
-                    smsSent = true; // No SMS needed, so consider it as handled
-                }
+            //     // Send verification SMS if phone number provided
+            //     const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
+            //     if (phoneNumber && phoneOTP) {
+            //         if (buildFeatures && !buildFeatures.isSmsOtpEnabled) {
+            //             user.phoneVerified = true;
+            //             user.phoneVerificationCode = null;
+            //             user.phoneVerificationExpires = null;
+            //             await user.save();
+            //             smsSent = true; // Consider it as sent since it's auto-verified
+            //         } else {
+            //             // Try to send phone verification
+            //             try {
+            //                 const smsResult = await this.sendPhoneVerification(phoneNumber, phoneOTP);
+            //                 if (smsResult && smsResult.success) {
+            //                     smsSent = true;
+            //                 } else {
+            //                     console.error('SMS verification failed:', smsResult ? smsResult.error : 'Unknown error');
+            //                 }
+            //             } catch (smsError) {
+            //                 console.error('SMS verification sending failed:', smsError.message);
+            //             }
+            //         }
+            //     } else {
+            //         smsSent = true; // No SMS needed, so consider it as handled
+            //     }
 
-                // Set appropriate message based on what succeeded/failed
-                if (!emailSent && !smsSent && phoneNumber && phoneOTP) {
-                    verificationMessage = 'User registered successfully. Email and SMS verification pending - please try again later';
-                } else if (!emailSent) {
-                    verificationMessage = 'User registered successfully. Email verification pending - please try again later';
-                } else if (!smsSent && phoneNumber && phoneOTP && !(buildFeatures && !buildFeatures.isSmsOtpEnabled)) {
-                    verificationMessage = 'User registered successfully. SMS verification pending - please try again later';
-                }
-            }
+            //     // Set appropriate message based on what succeeded/failed
+            //     if (!emailSent && !smsSent && phoneNumber && phoneOTP) {
+            //         verificationMessage = 'User registered successfully. Email and SMS verification pending - please try again later';
+            //     } else if (!emailSent) {
+            //         verificationMessage = 'User registered successfully. Email verification pending - please try again later';
+            //     } else if (!smsSent && phoneNumber && phoneOTP && !(buildFeatures && !buildFeatures.isSmsOtpEnabled)) {
+            //         verificationMessage = 'User registered successfully. SMS verification pending - please try again later';
+            //     }
+            // }
 
             const { jwtAccessToken } = await this.generateTokens(user);
 

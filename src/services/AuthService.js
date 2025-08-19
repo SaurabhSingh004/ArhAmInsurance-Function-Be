@@ -270,7 +270,7 @@ This email was sent to ${email}
 
     static async registerUser(userData) {
         try {
-            const { email, password, firstName, lastName, dateOfBirth, gender, age, height, weight, phoneNumber, appName, buildNumber } = userData;
+            const { email, password, firstName, lastName, dateOfBirth, gender, age, height, weight, phoneNumber, appName, buildNumber = "1.1.5" } = userData;
             const userExists = await User.findOne({ email: email.toLowerCase() });
             if (userExists) {
                 const responseData = {
@@ -882,7 +882,7 @@ This email was sent to ${email}
 
     static async handleGoogleCallback(googleUserData) {
         try {
-            const { user, credential, profile, appName, buildNumber = '1.5.0' } = googleUserData;
+            const { user, credential, profile, appName, buildNumber = '1.1.5' } = googleUserData;
 
             let existingUser = await User.findOne({ email: profile.email });
             if (!existingUser) {
@@ -978,7 +978,7 @@ This email was sent to ${email}
 
     static async handleAppleCallback(appleUserData, context) {
         try {
-            const { credential, profile, appName, buildNumber = '1.5.0' } = appleUserData;
+            const { credential, profile, appName, buildNumber = '1.1.5' } = appleUserData;
 
             // Extract email and user ID (sub)
             let email = profile?.email;

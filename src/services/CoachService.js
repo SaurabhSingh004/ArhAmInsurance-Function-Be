@@ -44,7 +44,7 @@ class CoachService {
                 JSON.stringify(contextHistory)
             );
 
-            await StreakService.syncCoachConnectStreakData(userId, Date.now());
+            // await StreakService.syncCoachConnectStreakData(userId, Date.now());
             const response = await AIService.getAIResponse(promptData);
             return this.getParsedResponse(response, userId, messages, chatHistory, prompt);
         } catch (error) {

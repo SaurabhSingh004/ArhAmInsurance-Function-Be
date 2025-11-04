@@ -24,7 +24,7 @@ const getRequiredDocuments = (claimType) => {
 const claimSchema = new mongoose.Schema({
     claimId: { type: String, required: true, unique: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'users', required: true },
-    insuranceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Insurance', required: true },
+    insuranceId: { type: mongoose.Schema.Types.ObjectId, ref: 'Document', required: true },
     policyNumber: { type: String, required: true },
     claimType: { 
         type: String, 

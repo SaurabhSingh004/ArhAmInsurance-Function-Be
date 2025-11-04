@@ -342,6 +342,107 @@ class GlobalWebSocketManager extends EventEmitter {
         }
     }
 
+    async getDocumentTypeAndCount(userId, chatId, claimType) {
+        const query = `
+Analyze the uploaded document and return ONLY valid JSON (no prose) matching this schema:
+
+{
+  "documentType": "one of: medical_report | police_report | bill | receipt | photo | other",
+  "confidence": "high | medium | low",
+  "detectedFrom": "string describing what indicated this type"
+}
+
+Rules:
+- Identify the document type based on content, headers, format, and context
+- medical_report: Hospital records, prescriptions, lab reports, medical certificates
+- police_report: FIR, police complaint, accident report, theft report
+- bill: Invoices, repair bills, hospital bills, service charges
+- receipt: Payment receipts, transaction confirmations
+- photo: Images of damage, accident scene, medical condition
+- other: Any document not fitting above categories
+- Output JSON only, no additional text
+`;
+
+        try {
+            const response = await this.sendQuery(userId, chatId, query);
+
+            // Parse JSON response
+            let detectedType;
+            try {
+                let raw = (response?.answer ?? '').trim();
+
+                // Strip code fences if any
+                if (raw.startsWith('```json')) {
+                    raw = raw.replace(/```json\s*/i, '').replace(/```\s*$/i, '');
+                } else if (raw.startsWith('```')) {
+                    raw = raw.replace(/```\s*/i, '').replace(/```\s*$/i, '');
+                }
+
+                // Try direct parse first
+                try {
+                    detectedType = JSON.parse(raw);
+                } catch {
+                    // Fallback: extract first JSON object
+                    const start = raw.indexOf('{');
+                    const end = raw.lastIndexOf('}');
+                    if (start !== -1 && end !== -1 && end > start) {
+                        const slice = raw.slice(start, end + 1);
+                        detectedType = JSON.parse(slice);
+                    } else {
+                        throw new Error('No JSON object found');
+                    }
+                }
+            } catch (parseError) {
+                console.error('Error parsing document type JSON:', parseError, response?.answer);
+                throw new Error('Failed to parse document type from AI response');
+            }
+
+            // Get required documents for the claim type
+            const requiredDocs = this.getRequiredDocuments(claimType);
+
+            // Count how many of this document type are required
+            const documentType = detectedType.documentType || 'other';
+            const requiredCount = requiredDocs.filter(doc => doc === documentType).length;
+
+            // Check if this document type is required for this claim
+            const isRequired = requiredDocs.includes(documentType);
+
+            return {
+                documentType,
+                confidence: detectedType.confidence || 'medium',
+                detectedFrom: detectedType.detectedFrom || 'Document analysis',
+                claimType,
+                requiredDocuments: requiredDocs,
+                isRequired,
+                requiredCount, // How many of this type are needed
+                fullResponse: response
+            };
+
+        } catch (error) {
+            throw logError('getDocumentTypeAndCount', error, { userId, chatId, claimType });
+        }
+    }
+
+    // Helper function to get required documents (add this to your service)
+    getRequiredDocuments(claimType) {
+        const requiredDocs = {
+            vehicle: ['police_report', 'photo', 'bill'],
+            two_wheeler: ['police_report', 'photo', 'bill'],
+            car: ['police_report', 'photo', 'bill'],
+            health: ['medical_report', 'bill', 'receipt'],
+            travel: ['medical_report', 'bill', 'receipt'],
+            flight: ['receipt', 'other'],
+            life: ['medical_report', 'other'],
+            home: ['police_report', 'photo', 'bill'],
+            personal_accident: ['medical_report', 'police_report', 'bill'],
+            marine: ['other', 'photo', 'bill'],
+            fire: ['police_report', 'photo', 'bill'],
+            other: ['other']
+        };
+
+        return requiredDocs[claimType] || [];
+    }
+
     async getStructuredInsuranceData(userId, chatId) {
         const query = `
 Return ONLY valid JSON (no prose) matching this schema. Detect the document type first, then extract fields. 

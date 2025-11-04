@@ -2,20 +2,23 @@
 const Claim = require('../models/claim');
 const Insurance = require('../models/insurance');
 const UploadService = require('./UploadService');
+const InsuranceService = require('./websocketService');
 const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');
 const mongoose = require('mongoose');
+
 class ClaimService {
     constructor() {
         this.uploadService = new UploadService();
     }
 
     /**
-     * Create a new claim
-     * @param {string} userId - User ID
-     * @param {Object} claimData - Claim data
-     * @returns {Promise<Object>} Created claim
-     */
+ * Create a new claim
+ * @param {string} userId - User ID
+ * @param {Object} claimData - Claim data
+ * @param {Array} files - Optional files to upload
+ * @returns {Promise<Object>} Created claim
+ */
     async createClaim(userId, claimData, files = null) {
         try {
             const {
@@ -43,10 +46,15 @@ class ClaimService {
                 throw new Error('Cannot create claim for inactive insurance policy');
             }
 
-            // Map claim type to valid enum values
-            const validClaimTypes = ['life', 'health', 'motor', 'fire', 'marine', 'accident', 'medical', 'other'];
+            // Validate claim type against enum
+            const validClaimTypes = [
+                'vehicle', 'two_wheeler', 'car', 'health', 'travel',
+                'flight', 'life', 'home', 'personal_accident', 'marine', 'fire', 'other'
+            ];
             const normalizedClaimType = claimType.toLowerCase();
-            const mappedClaimType = validClaimTypes.includes(normalizedClaimType) ? normalizedClaimType : 'other';
+            if (!validClaimTypes.includes(normalizedClaimType)) {
+                throw new Error(`Invalid claim type. Must be one of: ${validClaimTypes.join(', ')}`);
+            }
 
             // Map relationship to valid enum values
             const validRelationships = ['self', 'spouse', 'child', 'parent', 'nominee', 'other'];
@@ -61,34 +69,74 @@ class ClaimService {
             // Generate unique claim ID
             const claimId = `CLM-${Date.now()}-${uuidv4().substring(0, 8).toUpperCase()}`;
 
+            // Get required documents for this claim type
+            const requiredDocumentTypes = Claim.getRequiredDocumentsByType(normalizedClaimType);
+
             // Handle file uploads if provided
             let supportingDocuments = [];
+            let documentAnalysis = null;
+
             if (files && Array.isArray(files) && files.length > 0) {
                 try {
                     console.log(`Uploading ${files.length} files for claim ${claimId}`);
-                    
+
                     // Upload files using uploadService
                     const uploadedFiles = await this.uploadService.uploadClaimDocuments(
-                        files, 
-                        userId, 
+                        files,
+                        userId,
                         insurance.policyId || insurance.policyNumber
                     );
 
-                    // Format documents for claim schema
-                    supportingDocuments = uploadedFiles.map(file => ({
-                        fileName: file.originalName,
-                        docUrl: file.url,
-                        azureBlobName: file.blobName,
-                        docType: this.determineDocType(file.originalName),
-                        uploadDate: new Date()
-                    }));
+                    // Analyze uploaded documents using AI (parallel processing)
+                    const documentDetectionResults = await Promise.all(
+                        uploadedFiles.map(async (file, index) => {
+                            try {
+                                // Create a chat session for document analysis if needed
+                                const chatId = `claim-${claimId}-doc-${index}`;
 
-                    console.log(`Successfully uploaded ${supportingDocuments.length} documents`);
+                                // Use AI to detect document type
+                                const aiDetection = await InsuranceService.getDocumentTypeAndCount(
+                                    userId,
+                                    chatId,
+                                    normalizedClaimType
+                                );
+
+                                return {
+                                    fileName: file.originalName,
+                                    docUrl: file.url,
+                                    azureBlobName: file.blobName,
+                                    docType: aiDetection.documentType || 'other',
+                                    confidence: aiDetection.confidence,
+                                    uploadDate: new Date()
+                                };
+                            } catch (aiError) {
+                                console.error('AI detection failed, falling back to filename detection:', aiError);
+                                // Fallback to filename-based detection
+                                return {
+                                    fileName: file.originalName,
+                                    docUrl: file.url,
+                                    azureBlobName: file.blobName,
+                                    docType: this.determineDocType(file.originalName),
+                                    uploadDate: new Date()
+                                };
+                            }
+                        })
+                    );
+
+                    supportingDocuments = documentDetectionResults;
+
+                    // Analyze document completeness
+                    documentAnalysis = this.analyzeDocumentCompleteness(
+                        supportingDocuments,
+                        requiredDocumentTypes
+                    );
+
+                    console.log(`Successfully uploaded and analyzed ${supportingDocuments.length} documents`);
+                    console.log('Document analysis:', documentAnalysis);
                 } catch (uploadError) {
                     console.error('File upload failed during claim creation:', uploadError);
-                    // Continue with claim creation even if file upload fails
                     // You can choose to throw the error if file upload is mandatory
-                    // throw new Error(`File upload failed: ${uploadError.message}`);
+                    throw new Error(`File upload failed: ${uploadError.message}`);
                 }
             }
 
@@ -98,7 +146,7 @@ class ClaimService {
                 userId,
                 insuranceId,
                 policyNumber: insurance.policyNumber,
-                claimType: mappedClaimType,
+                claimType: normalizedClaimType,
                 claimAmount: Number(claimAmount),
                 incidentDate: new Date(incidentDate),
                 description,
@@ -112,31 +160,228 @@ class ClaimService {
                 status: 'submitted',
                 currency: claimData.currency || 'INR',
                 priority: mappedPriority,
-                supportingDocuments: supportingDocuments // Add uploaded documents here
+                supportingDocuments: supportingDocuments,
+                requiredDocumentTypes: requiredDocumentTypes
             });
 
             await claim.save();
-            
+
+            // Get missing documents
+            const missingDocuments = claim.getMissingDocuments();
+            const hasAllDocuments = claim.hasAllRequiredDocuments();
+            const completionPercentage = this.calculateCompletionPercentage(
+                supportingDocuments,
+                requiredDocumentTypes
+            );
+
+            // Generate user-friendly feedback message
+            const feedbackMessage = this.generateDocumentFeedbackMessage(
+                requiredDocumentTypes,
+                supportingDocuments,
+                missingDocuments,
+                hasAllDocuments,
+                completionPercentage,
+                normalizedClaimType
+            );
+
             console.log('Claim created with ID:', claim.claimId);
-            console.log('Mapped values:', {
-                originalClaimType: claimType,
-                mappedClaimType,
-                originalRelationship: claimant.relationship,
-                mappedRelationship,
-                originalPriority: claimData.priority,
-                mappedPriority,
-                documentsUploaded: supportingDocuments.length
+            console.log('Document status:', {
+                requiredDocuments: requiredDocumentTypes,
+                uploadedCount: supportingDocuments.length,
+                missingDocuments,
+                isComplete: hasAllDocuments,
+                documentAnalysis
             });
-            
+            console.log("feedback message:", feedbackMessage);
+
             return {
                 claim,
                 documentsUploaded: supportingDocuments.length,
-                uploadedDocuments: supportingDocuments
+                message: feedbackMessage.message,
+                feedbackType: feedbackMessage.type,
+                nextSteps: feedbackMessage.nextSteps
             };
 
         } catch (error) {
             throw logError('createClaim', error, { userId });
         }
+    }
+
+    /**
+ * Generate user-friendly feedback message based on document status
+ * @param {Array} requiredDocs - Required document types
+ * @param {Array} uploadedDocs - Uploaded documents
+ * @param {Array} missingDocs - Missing document types
+ * @param {boolean} isComplete - Whether all documents are uploaded
+ * @param {number} completionPercentage - Completion percentage
+ * @param {string} claimType - Type of claim
+ * @returns {Object} Feedback message object
+ */
+    generateDocumentFeedbackMessage(requiredDocs, uploadedDocs, missingDocs, isComplete, completionPercentage, claimType) {
+        // Document type display names for better readability
+        const docTypeNames = {
+            'medical_report': 'Medical Report',
+            'police_report': 'Police Report',
+            'bill': 'Bill/Invoice',
+            'receipt': 'Payment Receipt',
+            'photo': 'Photo Evidence',
+            'other': 'Supporting Document'
+        };
+
+        const formatDocType = (docType) => docTypeNames[docType] || docType;
+
+        // Format claim type for display
+        const claimTypeDisplay = claimType.split('_').map(word =>
+            word.charAt(0).toUpperCase() + word.slice(1)
+        ).join(' ');
+
+        // CASE 1: All required documents uploaded (100% complete)
+        if (isComplete && uploadedDocs.length > 0) {
+            return {
+                type: 'success',
+                message: `✅ Claim submitted successfully! All ${requiredDocs.length} required document${requiredDocs.length > 1 ? 's have' : ' has'} been uploaded. Your ${claimTypeDisplay} claim is now ready for review.`,
+                nextSteps: [
+                    '🎯 100% Document Match Score - Maximum approval chances!',
+                    'Your claim will be reviewed by our team within 2-3 business days',
+                    'You will receive updates via email and SMS',
+                    'You can track your claim status in the Claims section'
+                ]
+            };
+        }
+
+        // CASE 2: Some documents uploaded but not all (1-99% complete)
+        if (uploadedDocs.length > 0 && missingDocs.length > 0) {
+            const missingDocsList = missingDocs.map(doc => formatDocType(doc)).join(', ');
+            const uploadedCount = uploadedDocs.length;
+            const totalRequired = requiredDocs.length;
+
+            // Calculate match score impact
+            const matchScoreImpact = this.getMatchScoreMessage(completionPercentage);
+
+            return {
+                type: 'warning',
+                message: `⚠️ ${claimTypeDisplay} claim created but incomplete! You've uploaded ${uploadedCount} out of ${totalRequired} required document${totalRequired > 1 ? 's' : ''} (${completionPercentage}% complete). ${matchScoreImpact.message}`,
+                nextSteps: [
+                    `📊 Current Document Match Score: ${completionPercentage}%`,
+                    `⚠️ Missing document${missingDocs.length > 1 ? 's' : ''}: ${missingDocsList}`,
+                    '💡 Upload all required documents to achieve 100% match score',
+                    '✨ Complete documentation significantly increases claim approval chances',
+                    'Your claim processing may be delayed until all documents are submitted',
+                    'You can upload additional documents from the claim details page'
+                ]
+            };
+        }
+
+        // CASE 3: No documents uploaded (0% complete)
+        if (uploadedDocs.length === 0 && requiredDocs.length > 0) {
+            const requiredDocsList = requiredDocs.map(doc => formatDocType(doc)).join(', ');
+
+            return {
+                type: 'info',
+                message: `📋 ${claimTypeDisplay} claim registered! To proceed with your claim and achieve optimal approval chances, please upload all ${requiredDocs.length} required document${requiredDocs.length > 1 ? 's' : ''}.`,
+                nextSteps: [
+                    `📊 Current Document Match Score: 0% - Action Required!`,
+                    `📝 Required document${requiredDocs.length > 1 ? 's' : ''}: ${requiredDocsList}`,
+                    '🎯 Upload all documents to achieve 100% match score for maximum approval probability',
+                    '⚡ Complete documentation ensures faster claim processing',
+                    '✅ Claims with all required documents have higher success rates',
+                    'Accepted formats: PDF, JPG, JPEG, PNG (Max 5MB per file)',
+                    'You can upload documents from the claim details page'
+                ]
+            };
+        }
+
+        // CASE 4: No required documents for this claim type (edge case)
+        if (requiredDocs.length === 0) {
+            return {
+                type: 'success',
+                message: `✅ ${claimTypeDisplay} claim submitted successfully! No additional documents are required for this claim type. Your claim is now under review.`,
+                nextSteps: [
+                    '🎯 100% Document Match Score - No documents required',
+                    'Your claim will be reviewed by our team within 2-3 business days',
+                    'You will receive updates via email and SMS',
+                    'You can track your claim status in the Claims section'
+                ]
+            };
+        }
+
+        // CASE 5: Default fallback (should rarely occur)
+        return {
+            type: 'info',
+            message: `${claimTypeDisplay} claim has been registered. Please review and upload all required documents to maximize your claim approval chances.`,
+            nextSteps: [
+                '📊 Upload all required documents to achieve 100% match score',
+                '✨ Complete documentation significantly increases approval probability',
+                'Check the required documents for your claim type',
+                'Contact support if you need assistance'
+            ]
+        };
+    }
+
+    /**
+     * Get match score message based on completion percentage
+     * @param {number} completionPercentage - Document completion percentage
+     * @returns {Object} Match score message
+     */
+    getMatchScoreMessage(completionPercentage) {
+        if (completionPercentage >= 80) {
+            return {
+                level: 'high',
+                message: 'You\'re almost there! Upload the remaining documents to reach 100% match score for optimal claim approval.'
+            };
+        } else if (completionPercentage >= 50) {
+            return {
+                level: 'medium',
+                message: 'Good progress! Upload all remaining documents to increase your match score and improve approval chances.'
+            };
+        } else if (completionPercentage >= 25) {
+            return {
+                level: 'low',
+                message: 'More documents needed! Upload all required documents to significantly increase your claim match score and approval probability.'
+            };
+        } else {
+            return {
+                level: 'critical',
+                message: 'Critical: Most documents are missing! Upload all required documents immediately to improve your match score and claim success rate.'
+            };
+        }
+    }
+
+    /**
+     * Format missing documents into detailed readable message
+     * @param {Array} missingDocs - Array of missing document types
+     * @returns {string} Formatted message
+     */
+    formatMissingDocumentsMessage(missingDocs) {
+        if (!missingDocs || missingDocs.length === 0) {
+            return '✅ All required documents have been uploaded. Your claim has 100% document match score!';
+        }
+
+        const docTypeNames = {
+            'medical_report': 'Medical Report',
+            'police_report': 'Police/FIR Report',
+            'bill': 'Bill/Invoice',
+            'receipt': 'Payment Receipt',
+            'photo': 'Photos of damage/incident',
+            'other': 'Additional Supporting Documents'
+        };
+
+        const descriptions = {
+            'medical_report': 'hospital records, prescriptions, lab reports, or doctor\'s certificate',
+            'police_report': 'FIR copy, police complaint, or accident report',
+            'bill': 'repair bills, hospital bills, treatment invoices, or service charges',
+            'receipt': 'payment receipts, transaction proof, or billing statements',
+            'photo': 'clear photos showing the damage, accident scene, or medical condition',
+            'other': 'any additional relevant supporting documents'
+        };
+
+        const formatted = missingDocs.map((doc, index) => {
+            const name = docTypeNames[doc] || doc;
+            const desc = descriptions[doc] || '';
+            return `   ${index + 1}. ${name}${desc ? ` - Include ${desc}` : ''}`;
+        }).join('\n');
+
+        return `⚠️ Missing Documents (Upload these to increase your match score):\n${formatted}\n\n💡 Tip: Uploading all required documents increases your claim approval probability by up to 80%!`;
     }
 
     /**
@@ -162,31 +407,75 @@ class ClaimService {
 
             // Upload documents using existing upload service
             const uploadedFiles = await this.uploadService.uploadClaimDocuments(
-                files, 
-                userId, 
+                files,
+                userId,
                 insurance.policyId || insurance.policyNumber
             );
 
-            // Format documents for claim schema
-            const supportingDocuments = uploadedFiles.map(file => ({
-                fileName: file.originalName,
-                docUrl: file.url,
-                azureBlobName: file.blobName,
-                docType: this.determineDocType(file.originalName),
-                uploadDate: new Date()
-            }));
+            // Analyze uploaded documents using AI (parallel processing)
+            const documentDetectionResults = await Promise.all(
+                uploadedFiles.map(async (file, index) => {
+                    try {
+                        const chatId = `claim-${claimId}-doc-upload-${Date.now()}-${index}`;
+
+                        const aiDetection = await InsuranceService.getDocumentTypeAndCount(
+                            userId,
+                            chatId,
+                            claim.claimType
+                        );
+
+                        return {
+                            fileName: file.originalName,
+                            docUrl: file.url,
+                            azureBlobName: file.blobName,
+                            docType: aiDetection.documentType || 'other',
+                            confidence: aiDetection.confidence,
+                            uploadDate: new Date()
+                        };
+                    } catch (aiError) {
+                        console.error('AI detection failed, using fallback:', aiError);
+                        return {
+                            fileName: file.originalName,
+                            docUrl: file.url,
+                            azureBlobName: file.blobName,
+                            docType: this.determineDocType(file.originalName),
+                            uploadDate: new Date()
+                        };
+                    }
+                })
+            );
 
             // Update claim with new documents
-            claim.supportingDocuments = [...claim.supportingDocuments, ...supportingDocuments];
+            claim.supportingDocuments = [...claim.supportingDocuments, ...documentDetectionResults];
             await claim.save();
+
+            // Get updated document status
+            const missingDocuments = claim.getMissingDocuments();
+            const hasAllDocuments = claim.hasAllRequiredDocuments();
+            const documentAnalysis = this.analyzeDocumentCompleteness(
+                claim.supportingDocuments,
+                claim.requiredDocumentTypes
+            );
 
             return {
                 success: true,
                 data: {
                     claimId: claim.claimId,
-                    uploadedDocuments: supportingDocuments
+                    uploadedDocuments: documentDetectionResults,
+                    documentStatus: {
+                        required: claim.requiredDocumentTypes,
+                        missing: missingDocuments,
+                        isComplete: hasAllDocuments,
+                        completionPercentage: this.calculateCompletionPercentage(
+                            claim.supportingDocuments,
+                            claim.requiredDocumentTypes
+                        ),
+                        analysis: documentAnalysis
+                    }
                 },
-                message: 'Supporting documents uploaded successfully'
+                message: hasAllDocuments
+                    ? 'All required documents uploaded successfully'
+                    : `Documents uploaded. Still missing: ${missingDocuments.join(', ')}`
             };
 
         } catch (error) {
@@ -195,13 +484,65 @@ class ClaimService {
     }
 
     /**
-     * Determine document type based on filename
+     * Analyze document completeness
+     * @param {Array} uploadedDocuments - Array of uploaded documents
+     * @param {Array} requiredDocuments - Array of required document types
+     * @returns {Object} Document analysis
+     */
+    analyzeDocumentCompleteness(uploadedDocuments, requiredDocuments) {
+        // Count available documents by type
+        const availableDocsByType = uploadedDocuments.reduce((acc, doc) => {
+            acc[doc.docType] = (acc[doc.docType] || 0) + 1;
+            return acc;
+        }, {});
+
+        // Check which required documents are fulfilled
+        const fulfilledDocs = requiredDocuments.filter(reqDoc => {
+            return availableDocsByType[reqDoc] && availableDocsByType[reqDoc] > 0;
+        });
+
+        // Check which required documents are missing
+        const missingDocs = requiredDocuments.filter(reqDoc => {
+            return !availableDocsByType[reqDoc] || availableDocsByType[reqDoc] === 0;
+        });
+
+        return {
+            availableDocsByType,
+            fulfilledDocuments: fulfilledDocs,
+            missingDocuments: missingDocs,
+            totalRequired: requiredDocuments.length,
+            totalFulfilled: fulfilledDocs.length,
+            totalMissing: missingDocs.length
+        };
+    }
+
+    /**
+     * Calculate document completion percentage
+     * @param {Array} uploadedDocuments - Array of uploaded documents
+     * @param {Array} requiredDocuments - Array of required document types
+     * @returns {number} Completion percentage
+     */
+    calculateCompletionPercentage(uploadedDocuments, requiredDocuments) {
+        if (!requiredDocuments || requiredDocuments.length === 0) {
+            return 100;
+        }
+
+        const uploadedTypes = uploadedDocuments.map(doc => doc.docType);
+        const fulfilledCount = requiredDocuments.filter(reqDoc =>
+            uploadedTypes.includes(reqDoc)
+        ).length;
+
+        return Math.round((fulfilledCount / requiredDocuments.length) * 100);
+    }
+
+    /**
+     * Determine document type based on filename (fallback method)
      * @param {string} fileName - File name
      * @returns {string} Document type
      */
     determineDocType(fileName) {
         const lowerFileName = fileName.toLowerCase();
-        
+
         if (lowerFileName.includes('medical') || lowerFileName.includes('hospital')) {
             return 'medical_report';
         }
@@ -214,18 +555,18 @@ class ClaimService {
         if (lowerFileName.includes('receipt')) {
             return 'receipt';
         }
-        if (lowerFileName.match(/\.(jpg|jpeg|png|gif|bmp)$/)) {
+        if (lowerFileName.match(/\.(jpg|jpeg|png|gif|bmp|png)$/i)) {
             return 'photo';
         }
-        
+
         return 'other';
     }
 
     /**
-     * Get claim by ID
+     * Get claim by ID with document status
      * @param {string} claimId - Claim ID
      * @param {string} userId - User ID (optional, for authorization)
-     * @returns {Promise<Object>} Claim record
+     * @returns {Promise<Object>} Claim record with document status
      */
     async getClaimById(claimId, userId = null) {
         try {
@@ -239,6 +580,18 @@ class ClaimService {
             if (!claim) {
                 throw new Error('Claim not found');
             }
+
+            // Add document completeness info
+            const claimDoc = await Claim.findOne(query);
+            claim.documentStatus = {
+                required: claimDoc.requiredDocumentTypes,
+                missing: claimDoc.getMissingDocuments(),
+                isComplete: claimDoc.hasAllRequiredDocuments(),
+                completionPercentage: this.calculateCompletionPercentage(
+                    claim.supportingDocuments,
+                    claimDoc.requiredDocumentTypes
+                )
+            };
 
             return claim;
 
@@ -256,13 +609,32 @@ class ClaimService {
     async getUserClaims(userId, filters = {}) {
         try {
             const query = { userId, ...filters };
-            
+
             const claims = await Claim.find(query)
                 .populate('insuranceId', 'policyNumber productName status')
                 .sort({ createdAt: -1 })
                 .lean();
 
-            return claims;
+            // Add document status to each claim
+            const claimsWithStatus = await Promise.all(
+                claims.map(async (claim) => {
+                    const claimDoc = await Claim.findById(claim._id);
+                    return {
+                        ...claim,
+                        documentStatus: {
+                            required: claimDoc.requiredDocumentTypes,
+                            missing: claimDoc.getMissingDocuments(),
+                            isComplete: claimDoc.hasAllRequiredDocuments(),
+                            completionPercentage: this.calculateCompletionPercentage(
+                                claim.supportingDocuments,
+                                claimDoc.requiredDocumentTypes
+                            )
+                        }
+                    };
+                })
+            );
+
+            return claimsWithStatus;
 
         } catch (error) {
             throw logError('getUserClaims', error, { userId });
@@ -333,7 +705,7 @@ class ClaimService {
     async addProcessingNote(claimId, note, addedBy, stage) {
         try {
             const claim = await Claim.findOne({ claimId });
-            
+
             if (!claim) {
                 throw new Error('Claim not found');
             }
@@ -391,15 +763,30 @@ class ClaimService {
                     status: 1,
                     incidentDate: 1,
                     priority: 1,
-                    _id: 0 // Exclude the MongoDB _id field
+                    supportingDocuments: 1,
+                    requiredDocumentTypes: 1,
+                    _id: 0
                 }
             )
-            .sort({ reportedDate: -1 }) // Sort by reportedDate in descending order (newest first)
-            .lean(); // Use lean() for better performance since we don't need Mongoose document methods
+                .sort({ reportedDate: -1 })
+                .lean();
+
+            // Add document status to claims
+            const claimsWithDocStatus = claims.map(claim => ({
+                ...claim,
+                documentStatus: {
+                    totalUploaded: claim.supportingDocuments?.length || 0,
+                    totalRequired: claim.requiredDocumentTypes?.length || 0,
+                    completionPercentage: this.calculateCompletionPercentage(
+                        claim.supportingDocuments || [],
+                        claim.requiredDocumentTypes || []
+                    )
+                }
+            }));
 
             return {
                 totalClaims: claims.length,
-                claims: claims || []
+                claims: claimsWithDocStatus || []
             };
 
         } catch (error) {
@@ -416,7 +803,7 @@ class ClaimService {
     async deleteClaim(claimId, userId) {
         try {
             const claim = await Claim.findOne({ claimId, userId });
-            
+
             if (!claim) {
                 throw new Error('Claim not found');
             }

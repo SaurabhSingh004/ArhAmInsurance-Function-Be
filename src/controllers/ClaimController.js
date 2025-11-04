@@ -1,6 +1,7 @@
 // controllers/claimController.js
 const ClaimService = require('../services/ClaimService');
-
+const { v4: uuidv4 } = require('uuid');
+const WebSocketService = require('../services/websocketService');
 class ClaimController {
 
     /**
@@ -71,7 +72,7 @@ class ClaimController {
 
             // Validate specific claim fields
             const { insuranceId, claimType, incidentDate, claimAmount, description } = claimData;
-            
+
             if (!insuranceId || !claimType || !incidentDate || !claimAmount || !description) {
                 return {
                     status: 400,
@@ -143,9 +144,7 @@ class ClaimController {
                         documentsUploaded: result.documentsUploaded,
                         uploadResult: result.uploadResult
                     },
-                    message: result.documentsUploaded > 0 
-                        ? `Claim created successfully with ${result.documentsUploaded} supporting documents` 
-                        : 'Claim created successfully',
+                    message: result.message,
                     processedFields: Object.keys(claimData)
                 }
             };
@@ -154,7 +153,7 @@ class ClaimController {
             context.error('Error creating claim:', error);
 
             // Handle all validation and business logic errors as 400
-            if (error.message.includes('required fields') || 
+            if (error.message.includes('required fields') ||
                 error.message.includes('Insurance policy not found') ||
                 error.message.includes('inactive insurance') ||
                 error.message.includes('Missing required field') ||
@@ -273,7 +272,7 @@ class ClaimController {
         } catch (error) {
             context.error('Error uploading claim documents:', error);
 
-            if (error.message.includes('Claim not found') || 
+            if (error.message.includes('Claim not found') ||
                 error.message.includes('insurance policy not found')) {
                 return {
                     status: 404,
@@ -648,7 +647,7 @@ class ClaimController {
 
             const stats = await ClaimService.getClaimStats(userId);
 
-            if(!stats) {
+            if (!stats) {
                 return {
                     status: 404,
                     jsonBody: {
@@ -657,7 +656,7 @@ class ClaimController {
                         data: null
                     }
                 };
-            }   
+            }
 
             return {
                 status: 200,

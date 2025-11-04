@@ -574,6 +574,7 @@ class InsuranceService {
                 const formatted = {
                     _id: d._id,
                     policyId: d.policyId,
+                    policyType: d.insuranceCategory,
                     policyNumber: d.policyNumber,
                     status: d.status,
                     productName: d.productName,

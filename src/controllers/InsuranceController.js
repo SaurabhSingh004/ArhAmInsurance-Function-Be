@@ -569,7 +569,7 @@ class InsuranceController {
     getUserInsurances = async (request, context) => {
         try {
             const userId = context.user?._id;
-            const { status, productName } = request.query || {};
+            const { status, productName, insuranceCategory } = request.query || {};
 
             if (!userId) {
                 return {
@@ -585,6 +585,7 @@ class InsuranceController {
             const filters = {};
             if (status) filters.status = status;
             if (productName) filters.productName = new RegExp(productName, 'i');
+            if(insuranceCategory) filters.insuranceCategory = insuranceCategory;
 
             const formattedData = await InsuranceService.getFormattedUserInsurances(userId, filters);
 

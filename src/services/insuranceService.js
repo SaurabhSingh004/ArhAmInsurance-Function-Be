@@ -1,5 +1,5 @@
 // services/InsuranceService.js
-const Insurance = require('../models/insurance');
+const Document = require('../models/insurance');
 const UploadService = require('./UploadService');
 const WebSocketService = require('./websocketService');
 const axios = require('axios');
@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 const { logError } = require('../utils/logError');
 const mongoose = require('mongoose');
 const { getInsurancesByType, getAllInsuranceTypes } = require('../utils/insuranceData');
+
 class InsuranceService {
     constructor() {
         this.uploadService = new UploadService();
@@ -15,24 +16,25 @@ class InsuranceService {
     }
 
     /**
-     * Upload and process insurance document
-     * @param {Buffer} fileBuffer - File buffer
-     * @param {string} filename - Original filename
-     * @param {string} contentType - File content type
-     * @param {string} userId - User ID
-     * @returns {Promise<Object>} Insurance creation result
+     * Upload and process ANY document (kept name for backward compatibility).
+     * If the documentType is 'insurance_policy', we also run insurance validations.
+     *
+     * @param {Buffer} fileBuffer
+     * @param {string} filename
+     * @param {string} contentType
+     * @param {string} userId
+     * @returns {Promise<Object>}
      */
     async uploadInsuranceDocument(fileBuffer, filename, contentType, userId) {
         let chatId = null;
         let uploadedFile = null;
 
         try {
-            // Generate unique chat ID for this session
+            // Step 0: Generate a session chatId
             chatId = uuidv4();
 
-            // Step 1: Validate file
-            console.log('Step 1: Validating insurance document');
-            console.log("fileBuffer, ", fileBuffer);
+            // Step 1: Validate file (generic)
+            console.log('Step 1: Validating document');
             this.uploadService.validateRawFile(fileBuffer, filename, contentType, {
                 allowedTypes: [
                     'application/pdf',
@@ -42,13 +44,13 @@ class InsuranceService {
                     'image/tiff',
                     'image/bmp'
                 ],
-                maxFileSize: 15 * 1024 * 1024, // 15MB for insurance docs
-                requiredKeywords: [] // No specific keywords required for Arham Insurance
+                maxFileSize: 15 * 1024 * 1024,
+                requiredKeywords: []
             });
 
-            // Step 2: Upload document to Azure Blob Storage
+            // Step 2: Upload to Azure Blob Storage
             console.log('Step 2: Uploading document to Azure Blob Storage');
-            const folderPath = `arham-insurance-documents/${userId}`;
+            const folderPath = `arham-documents/${userId}`;
 
             uploadedFile = await this.uploadService.uploadRawFile(
                 fileBuffer,
@@ -57,7 +59,8 @@ class InsuranceService {
                 userId,
                 folderPath,
                 {
-                    documentType: 'insurance-policy',
+                    // metadata hints only; the real documentType will come from AI
+                    documentType: 'unknown',
                     uploadedBy: 'user',
                     company: 'Arham Insurance Brokers',
                     companyCode: 'AIBL'
@@ -70,7 +73,7 @@ class InsuranceService {
 
             console.log('Document uploaded to Azure:', uploadedFile.blobName);
 
-            // Step 3: Send document to AI service
+            // Step 3: Send document to AI service (to vectorize/process)
             console.log('Step 3: Sending document to AI service');
             const aiResponse = await this.sendDocumentToAI(userId, chatId, fileBuffer, filename);
 
@@ -80,35 +83,43 @@ class InsuranceService {
 
             console.log('Document processed by AI service successfully');
 
-            // Step 4: Check if insurance is active
-            console.log('Step 4: Checking insurance policy status');
-            const activeCheck = await WebSocketService.checkInsuranceActive(userId, chatId);
+            // Step 4: (Optional) Only for insurance policies, check active status via WebSocket pipeline
+            console.log('Step 4: Getting structured document data from AI');
+            const structuredData = await WebSocketService.getStructuredInsuranceData(userId, chatId);
+            // Expecting shape from your updated getStructuredInsuranceData1:
+            // { documentPayload, structuredResponse, fullResponse }
+            const documentPayload = structuredData?.documentPayload || structuredData?.insuranceData || structuredData;
 
-            if (!activeCheck.isActive) {
-                throw new Error(`Insurance policy is not active: ${activeCheck.response}`);
+            if (!documentPayload || typeof documentPayload !== 'object') {
+                throw new Error('Invalid structured payload from AI');
             }
 
-            console.log('Insurance policy is active');
+            // If the AI decided this is an insurance policy, optionally check active status
+            if (documentPayload.documentType === 'insurance_policy') {
+                console.log('Step 4b: Checking insurance policy status');
+                const activeCheck = await WebSocketService.checkInsuranceActive(userId, chatId);
 
-            // Step 5: Get structured insurance data
-            console.log('Step 5: Getting structured insurance data');
-            const structuredData = await WebSocketService.getStructuredInsuranceData(userId, chatId);
+                if (!activeCheck.isActive) {
+                    throw new Error(`Insurance policy is not active: ${activeCheck.response}`);
+                }
 
-            // Step 6: Create insurance record in database
-            console.log('Step 6: Creating insurance record in database', structuredData);
-            const insuranceRecord = await this.createInsuranceRecord(
+                console.log('Insurance policy is active');
+            }
+
+            // Step 5: Create a generic Document record (with normalized insurance fields if applicable)
+            console.log('Step 5: Creating document record in database');
+            const docRecord = await this.createDocumentRecord(
                 userId,
-                structuredData.insuranceData,
+                documentPayload,
                 uploadedFile,
                 chatId
             );
 
             return {
                 success: true,
-                data: insuranceRecord,
-                message: 'Insurance document uploaded and processed successfully'
+                data: docRecord,
+                message: 'Document uploaded and processed successfully'
             };
-
         } catch (error) {
             console.error('Error in uploadInsuranceDocument:', error);
 
@@ -133,10 +144,7 @@ class InsuranceService {
 
     /**
      * Upload supporting documents for claims
-     * @param {Array} files - Array of file objects [{buffer, filename, contentType}]
-     * @param {string} userId - User ID
-     * @param {string} policyId - Policy ID
-     * @returns {Promise<Array>} Uploaded files array
+     * (No DB write here—just upload; you may choose to persist these as 'ticket_travel'/'insurance_claim' types later)
      */
     async uploadClaimDocuments(files, userId, policyId) {
         try {
@@ -144,7 +152,6 @@ class InsuranceService {
             const folderPath = `arham-claim-documents/${userId}/${policyId}`;
 
             for (const file of files) {
-                // Validate claim document requirements
                 this.uploadService.validateRawFile(file.buffer, file.filename, file.contentType, {
                     allowedTypes: [
                         'application/pdf',
@@ -156,10 +163,9 @@ class InsuranceService {
                         'application/msword',
                         'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
                     ],
-                    maxFileSize: 10 * 1024 * 1024, // 10MB for claim docs
+                    maxFileSize: 10 * 1024 * 1024
                 });
 
-                // Upload with claim-specific metadata
                 const uploadedFile = await this.uploadService.uploadRawFile(
                     file.buffer,
                     file.filename,
@@ -186,11 +192,6 @@ class InsuranceService {
 
     /**
      * Send document to AI service for processing
-     * @param {string} userId - User ID
-     * @param {string} chatId - Chat ID
-     * @param {Buffer} fileContent - File content buffer
-     * @param {string} fileName - Original file name
-     * @returns {Promise<Object>} AI service response
      */
     async sendDocumentToAI(userId, chatId, fileContent, fileName) {
         try {
@@ -201,16 +202,16 @@ class InsuranceService {
             formData.append('chat_id', chatId);
             formData.append('file', fileContent, {
                 filename: fileName,
-                contentType: 'application/pdf'
+                contentType: 'application/pdf' // you can improve: detect from input contentType
             });
 
             const response = await axios.post(this.docInsightsUrl, formData, {
                 headers: {
-                    'accept': 'application/json',
+                    accept: 'application/json',
                     'x-api-key': this.apiKey,
                     ...formData.getHeaders()
                 },
-                timeout: 60000 // 60 seconds timeout
+                timeout: 60000
             });
 
             return response.data;
@@ -218,19 +219,15 @@ class InsuranceService {
             if (error.response) {
                 console.error('AI service error response:', error.response.data);
 
-                // Check if it's a document validation error (invalid document type)
                 if (this.isInvalidDocumentError(error.response)) {
-                    throw new Error('Invalid document type. Please upload a valid insurance policy document.');
+                    throw new Error('Invalid document type. Please upload a valid document.');
                 }
 
-                // Check for other client-side errors that should be treated as bad requests
                 if (error.response.status >= 400 && error.response.status < 500) {
-                    // Try to extract meaningful error message from response
                     const errorMessage = this.extractErrorMessage(error.response.data);
                     throw new Error(errorMessage || 'Invalid document or request. Please check your file and try again.');
                 }
 
-                // Server errors (500+)
                 throw new Error(`AI service error: ${error.response.status} - ${error.response.statusText}`);
             } else if (error.request) {
                 throw new Error('AI service did not respond');
@@ -240,19 +237,14 @@ class InsuranceService {
         }
     }
 
-    /**
-     * Check if the AI service error indicates an invalid document type
-     * @param {Object} errorResponse - Error response from AI service
-     * @returns {boolean} True if it's an invalid document error
-     */
     isInvalidDocumentError(errorResponse) {
         if (!errorResponse || !errorResponse.data) return false;
 
-        const errorData = typeof errorResponse.data === 'string'
-            ? errorResponse.data.toLowerCase()
-            : JSON.stringify(errorResponse.data).toLowerCase();
+        const errorData =
+            typeof errorResponse.data === 'string'
+                ? errorResponse.data.toLowerCase()
+                : JSON.stringify(errorResponse.data).toLowerCase();
 
-        // Check for common patterns that indicate invalid document type
         const invalidDocumentPatterns = [
             'not an insurance',
             'invalid insurance',
@@ -268,422 +260,454 @@ class InsuranceService {
             'document format not supported for insurance'
         ];
 
-        return invalidDocumentPatterns.some(pattern => errorData.includes(pattern));
+        return invalidDocumentPatterns.some((pattern) => errorData.includes(pattern));
     }
 
-    /**
-     * Extract meaningful error message from AI service response
-     * @param {*} errorData - Error data from AI service
-     * @returns {string} Extracted error message
-     */
     extractErrorMessage(errorData) {
         try {
             if (typeof errorData === 'string') {
                 return errorData;
             }
-
             if (errorData && typeof errorData === 'object') {
-                // Try common error message fields
-                return errorData.message ||
+                return (
+                    errorData.message ||
                     errorData.error ||
                     errorData.detail ||
                     errorData.description ||
-                    null;
+                    null
+                );
             }
         } catch (e) {
             console.error('Error extracting error message:', e);
         }
-
         return null;
     }
 
     /**
-     * Create insurance record in database
-     * @param {string} userId - User ID
-     * @param {Object} insuranceData - Structured insurance data
-     * @param {Object} uploadedFile - Uploaded file info
-     * @param {string} chatId - Chat ID
-     * @returns {Promise<Object>} Created insurance record
+     * Create a generic Document record using the AI's structured payload.
+     * If it's an insurance policy, we also validate normalized fields.
+     *
+     * @param {string} userId
+     * @param {Object} documentPayload  // from getStructuredInsuranceData1 (updated)
+     * @param {Object} uploadedFile
+     * @param {string} chatId
+     * @returns {Promise<Object>}
      */
-    async createInsuranceRecord(userId, insuranceData, uploadedFile, chatId) {
+    async createDocumentRecord(userId, documentPayload, uploadedFile, chatId) {
         try {
-            // Validate required insurance data
-            if (!insuranceData || typeof insuranceData !== 'object') {
-                throw new Error('Insurance data is required and must be a valid object');
+            // Basic presence check
+            if (!documentPayload || typeof documentPayload !== 'object') {
+                throw new Error('Structured document payload is required');
             }
 
-            // Validate required fields
-            const requiredFields = ['policyId', 'policyNumber', 'status', 'productName', 'coveragePeriod', 'beneficiary', 'coverage'];
-            for (const field of requiredFields) {
-                if (!insuranceData[field]) {
-                    throw new Error(`Missing required field: ${field}`);
+            // Pull out standardized fields
+            const {
+                documentType = 'other',
+                insuranceCategory = null,
+                extractedData = {},
+                policyId = documentPayload?.policyId, // tolerate older shape
+                policyNumber = documentPayload?.policyNumber,
+                status = documentPayload?.status,
+                productName = documentPayload?.productName,
+                coveragePeriod = documentPayload?.coveragePeriod,
+                beneficiary = documentPayload?.beneficiary,
+                duration = documentPayload?.duration,
+                coverage = documentPayload?.coverage,
+                cancelDate = documentPayload?.cancelDate,
+                premium = documentPayload?.premium,
+                currency = documentPayload?.currency,
+                insurer = documentPayload?.insurer,
+            } = documentPayload;
+
+            // Or newer nested shape:
+            const normalized = documentPayload?.normalized || {};
+            const normPolicyId = normalized?.policyId ?? policyId ?? null;
+            const normPolicyNumber = normalized?.policyNumber ?? policyNumber ?? null;
+            const normStatus = normalized?.status ?? status ?? 'unknown';
+            const normProductName = normalized?.productName ?? productName ?? null;
+            const normCoveragePeriod = normalized?.coveragePeriod ?? coveragePeriod ?? {};
+            const normBeneficiary = normalized?.beneficiary ?? beneficiary ?? {};
+            const normDuration = normalized?.duration ?? duration ?? null;
+            const normCoverage = normalized?.coverage ?? coverage ?? null;
+            const normCancelDate = normalized?.cancelDate ?? cancelDate ?? null;
+            const normPremium = normalized?.premium ?? premium ?? null;
+            const normCurrency = normalized?.currency ?? currency ?? null;
+            const normInsurer = normalized?.insurer ?? insurer ?? null;
+
+            // For insurance policies, run stricter validation (as your previous logic)
+            if (documentType === 'insurance_policy') {
+                // Required fields for insurance
+                // helper
+                const isBlank = (v) =>
+                    v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+
+                // --- require at least one of policyId / policyNumber ---
+                if (isBlank(normPolicyId) && isBlank(normPolicyNumber)) {
+                    throw new Error('Missing required field: either policyId or policyNumber must be provided');
                 }
+
+                // --- the rest remain required ---
+                const requiredFields = [
+                    'status',
+                    'productName',
+                    'coveragePeriod',
+                    'beneficiary',
+                    'coverage'
+                ];
+
+                const requiredMap = {
+                    status: normStatus,
+                    productName: normProductName,
+                    coveragePeriod: normCoveragePeriod,
+                    beneficiary: normBeneficiary,
+                    coverage: normCoverage
+                };
+
+                for (const field of requiredFields) {
+                    const val = requiredMap[field];
+                    if (
+                        val === undefined ||
+                        val === null ||
+                        (typeof val === 'string' && val.trim() === '')
+                    ) {
+                        throw new Error(`Missing required field: ${field}`);
+                    }
+                }
+
+
+                // Coverage period dates
+                if (!normCoveragePeriod.startDate || !normCoveragePeriod.endDate) {
+                    throw new Error('Coverage period must include both start and end dates');
+                }
+
+                // Parse dates
+                const startDate = new Date(normCoveragePeriod.startDate);
+                const endDate = new Date(normCoveragePeriod.endDate);
+                const birthDate = normBeneficiary?.birthDate ? new Date(normBeneficiary.birthDate) : null;
+
+                if (isNaN(startDate.getTime())) throw new Error('Invalid coverage start date format');
+                if (isNaN(endDate.getTime())) throw new Error('Invalid coverage end date format');
+                if (startDate >= endDate) throw new Error('Coverage start date must be before end date');
+                if (birthDate && isNaN(birthDate.getTime())) throw new Error('Invalid beneficiary birth date format');
+
+                // Status
+                const validStatuses = ['active', 'expired', 'cancelled', 'unknown'];
+                if (!validStatuses.includes(normStatus)) {
+                    throw new Error(`Invalid insurance status. Must be one of: ${validStatuses.join(', ')}`);
+                }
+
+                // Duration
+                let finalDuration = null;
+                if (typeof normDuration === 'number') {
+                    if (normDuration <= 0) throw new Error('Duration must be a positive number');
+                    finalDuration = normDuration;
+                } else if (typeof normDuration === 'string') {
+                    const m = normDuration.match(/(\d+)/);
+                    finalDuration = m ? parseInt(m[1], 10) : null;
+                }
+
+                // Build record
+                const toSave = {
+                    userId,
+                    chatId,
+                    documentType: 'insurance_policy',
+                    insuranceCategory: documentPayload.insuranceCategory ?? insuranceCategory ?? null,
+                    docUrl: uploadedFile.url,
+                    azureBlobName: uploadedFile.blobName,
+                    processingStatus: 'completed',
+                    extractedAt: new Date(),
+                    extractedData: extractedData || {},
+
+                    policyId: normPolicyId?.toString().trim(),
+                    policyNumber: normPolicyNumber?.toString().trim(),
+                    status: normStatus,
+                    productName: normProductName?.toString().trim(),
+                    coveragePeriod: {
+                        startDate,
+                        endDate
+                    },
+                    beneficiary: {
+                        name: normBeneficiary?.name ?? null,
+                        email: normBeneficiary?.email ? normBeneficiary.email.toLowerCase().trim() : null,
+                        birthDate: birthDate || undefined,
+                        documentNumber: normBeneficiary?.documentNumber ?? null,
+                        residenceCountry: normBeneficiary?.residenceCountry ?? null
+                    },
+                    duration: finalDuration,
+                    coverage: normCoverage ? normCoverage.toString().trim() : null,
+                    cancelDate: normCancelDate ? new Date(normCancelDate) : undefined,
+                    premium: typeof normPremium === 'number' ? normPremium : null,
+                    currency: normCurrency ?? 'INR',
+                    insurer: normInsurer ?? 'Arham Insurance Brokers Private Limited'
+                };
+
+                const doc = new Document(toSave);
+                await doc.save();
+                console.log('Document (insurance_policy) created with ID:', doc._id);
+                return doc;
             }
 
-            // Validate coverage period
-            if (!insuranceData.coveragePeriod.startDate || !insuranceData.coveragePeriod.endDate) {
-                throw new Error('Coverage period must include both start and end dates');
-            }
-
-
-            // Validate dates
-            let startDate, endDate, birthDate;
-            try {
-                startDate = new Date(insuranceData.coveragePeriod.startDate);
-                endDate = new Date(insuranceData.coveragePeriod.endDate);
-                birthDate = new Date(insuranceData.beneficiary.birthDate);
-
-                if (isNaN(startDate.getTime())) {
-                    throw new Error('Invalid coverage start date format');
-                }
-                if (isNaN(endDate.getTime())) {
-                    throw new Error('Invalid coverage end date format');
-                }
-                if (isNaN(birthDate.getTime())) {
-                    throw new Error('Invalid beneficiary birth date format');
-                }
-
-                if (startDate >= endDate) {
-                    throw new Error('Coverage start date must be before end date');
-                }
-            } catch (dateError) {
-                throw new Error(`Date validation error: ${dateError.message}`);
-            }
-
-            // Validate status
-            const validStatuses = ['active', 'expired', 'cancelled'];
-            if (!validStatuses.includes(insuranceData.status)) {
-                throw new Error(`Invalid insurance status. Must be one of: ${validStatuses.join(', ')}`);
-            }
-
-            // Validate duration
-            let duration;
-            try {
-                duration = Number(insuranceData.duration);
-                if (isNaN(duration) || duration <= 0) {
-                    throw new Error('Duration must be a positive number');
-                }
-            } catch (durationError) {
-                throw new Error('Invalid duration format');
-            }
-
-            // Prepare insurance document data
-            const insuranceDoc = {
+            // For NON-insurance docs: save what we know, keep normalized fields mostly null/sparse
+            const genericToSave = {
                 userId,
-                policyId: insuranceData.policyId.toString().trim(),
-                policyNumber: insuranceData.policyNumber.toString().trim(),
-                status: insuranceData.status,
-                productName: insuranceData.productName.toString().trim(),
-                coveragePeriod: {
-                    startDate: startDate,
-                    endDate: endDate
-                },
-                beneficiary: {
-                    name: insuranceData?.beneficiary?.name.toString().trim(),
-                    email: insuranceData?.beneficiary?.email.toString().toLowerCase().trim(),
-                    birthDate: birthDate,
-                    documentNumber: insuranceData?.beneficiary?.documentNumber.toString().trim(),
-                    residenceCountry: insuranceData?.beneficiary?.residenceCountry.toString().trim()
-                },
-                duration: duration,
-                coverage: insuranceData?.coverage.toString().trim(),
-                docUrl: uploadedFile.url,
                 chatId,
+                documentType,
+                insuranceCategory: documentPayload.insuranceCategory ?? insuranceCategory ?? null,
+                docUrl: uploadedFile.url,
                 azureBlobName: uploadedFile.blobName,
-                processingStatus: 'completed'
+                processingStatus: 'completed',
+                extractedAt: new Date(),
+                extractedData: extractedData || {},
+
+                // Keep normalized insurance fields null/undefined for other doc types
+                policyId: null,
+                policyNumber: null,
+                status: 'unknown',
+                productName: null,
+                coveragePeriod: {},
+                beneficiary: {},
+                duration: null,
+                coverage: null,
+                cancelDate: undefined,
+                premium: null,
+                currency: null,
+                insurer: null
             };
 
-            // Add cancel date if present
-            if (insuranceData.cancelDate) {
-                try {
-                    const cancelDate = new Date(insuranceData.cancelDate);
-                    if (isNaN(cancelDate.getTime())) {
-                        throw new Error('Invalid cancellation date format');
-                    }
-                    insuranceDoc.cancelDate = cancelDate;
-                } catch (cancelError) {
-                    throw new Error(`Cancellation date error: ${cancelError.message}`);
-                }
-            }
-
-            // Create insurance record
-            const insurance = new Insurance(insuranceDoc);
-            await insurance.save();
-
-            console.log('Insurance record created with ID:', insurance._id);
-
-            return insurance;
-
+            const genericDoc = new Document(genericToSave);
+            await genericDoc.save();
+            console.log(`Document (${documentType}) created with ID:`, genericDoc._id);
+            return genericDoc;
         } catch (error) {
-            // Handle MongoDB duplicate key errors
+            console.log('new error: ', error);
+
             if (error.code === 11000) {
-                // Check for compound unique index violation (userId + policyId)
+                // Handle unique index on (userId, policyId) sparse
                 if (error.keyPattern && error.keyPattern.userId && error.keyPattern.policyId) {
-                    throw new Error(`You already have an insurance policy with ID '${insuranceData?.policyId}'. Each policy ID must be unique for your account.`);
+                    throw new Error(
+                        `You already have a document with policyId '${documentPayload?.normalized?.policyId || documentPayload?.policyId}'.`
+                    );
                 }
-                // Check for policyNumber duplicate (if you have a separate unique index on policyNumber)
-                if (error.keyPattern && error.keyPattern.policyNumber) {
-                    throw new Error(`Insurance policy with number '${insuranceData?.policyNumber}' already exists`);
-                }
-                // Generic duplicate key error
                 const duplicateField = Object.keys(error.keyPattern || {})[0] || 'unknown field';
                 throw new Error(`Duplicate value for ${duplicateField}`);
             }
 
-            // Handle MongoDB validation errors
             if (error.name === 'ValidationError') {
-                const validationErrors = Object.values(error.errors).map(err => err.message);
+                const validationErrors = Object.values(error.errors).map((err) => err.message);
                 throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
             }
 
-            // Handle MongoDB cast errors
             if (error.name === 'CastError') {
                 throw new Error(`Invalid data type for field '${error.path}': ${error.message}`);
             }
 
-            // Handle connection errors
             if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
                 throw new Error('Database connection error. Please try again later');
             }
 
-            // Handle any other MongoDB errors
             if (error.name && error.name.startsWith('Mongo')) {
                 throw new Error('Database operation failed. Please check your data and try again');
             }
 
-            // If it's already our custom error, re-throw it
-            if (error.message.includes('Missing required field') ||
+            if (
+                error.message.includes('Missing required field') ||
                 error.message.includes('Invalid') ||
                 error.message.includes('must be') ||
                 error.message.includes('already exists') ||
-                error.message.includes('You already have')) {
+                error.message.includes('You already have')
+            ) {
                 throw error;
             }
 
-            // Log unexpected errors but don't expose internal details
-            console.error('Unexpected error in createInsuranceRecord:', error);
-            throw new Error('Failed to create insurance record. Please verify your data and try again');
+            console.error('Unexpected error in createDocumentRecord:', error);
+            throw new Error('Failed to create document record. Please verify your data and try again');
         }
     }
 
     /**
-     * Get insurance by ID
-     * @param {string} insuranceId - Insurance ID
-     * @param {string} userId - User ID (optional, for authorization)
-     * @returns {Promise<Object>} Insurance record
+     * Get a single document (was: getInsuranceById)
      */
-    async getInsuranceById(insuranceId, userId = null) {
+    async getInsuranceById(documentId, userId = null) {
         try {
-            const query = { _id: insuranceId };
+            const query = { _id: documentId };
             if (userId) query.userId = userId;
 
-            const insurance = await Insurance.findOne(query);
+            const doc = await Document.findOne(query);
+            if (!doc) throw new Error('Document not found');
 
-            if (!insurance) {
-                throw new Error('Insurance not found');
-            }
-
-            return insurance;
+            return doc;
         } catch (error) {
-            throw logError('getInsuranceById', error, { insuranceId, userId });
+            throw logError('getInsuranceById', error, { documentId, userId });
         }
     }
 
     /**
-     * Get all insurances for a user
-     * @param {string} userId - User ID
-     * @param {Object} filters - Optional filters
-     * @returns {Promise<Array>} Array of insurance records
+     * Get ALL insurance policies for a user (filters optional).
+     * Backward compatible—filters are applied on Document with documentType=insurance_policy
      */
     async getUserInsurances(userId, filters = {}) {
         try {
-            const query = { userId, ...filters };
-
-            const insurances = await Insurance.find(query)
-                .sort({ createdAt: -1 })
-                .lean();
-
-            return insurances;
+            const query = { userId, documentType: 'insurance_policy', ...filters };
+            const docs = await Document.find(query).sort({ createdAt: -1 }).lean();
+            return docs;
         } catch (error) {
             throw logError('getUserInsurances', error, { userId });
         }
     }
 
+    /**
+     * Returns formatted insurance policies (unchanged output shape)
+     */
     async getFormattedUserInsurances(userId, filters = {}) {
         try {
-            const query = { userId, ...filters };
+            const query = { userId, documentType: 'insurance_policy', ...filters };
+            const insurances = await Document.find(query).sort({ createdAt: -1 }).lean();
 
-            const insurances = await Insurance.find(query)
-                .sort({ createdAt: -1 })
-                .lean();
+            const userEmail = insurances.length > 0 ? (insurances[0]?.beneficiary?.email || '') : '';
+            const activePolicies = insurances.filter((d) => d.status === 'active').length;
 
-            // Get user email from first insurance record (assuming it's consistent)
-            const userEmail = insurances.length > 0 ? insurances[0].beneficiary.email : '';
+            const formattedPolicies = insurances.map((d) => {
+                const start = d?.coveragePeriod?.startDate ? new Date(d.coveragePeriod.startDate) : null;
+                const end = d?.coveragePeriod?.endDate ? new Date(d.coveragePeriod.endDate) : null;
+                const birth = d?.beneficiary?.birthDate ? new Date(d.beneficiary.birthDate) : null;
 
-            // Count active policies
-            const activePolicies = insurances.filter(insurance => insurance.status === 'active').length;
-
-            // Format policies
-            const formattedPolicies = insurances.map(insurance => {
-                const formattedPolicy = {
-                    _id: insurance._id,
-                    policyId: insurance.policyId,
-                    policyNumber: insurance.policyNumber,
-                    status: insurance.status,
-                    productName: insurance.productName,
+                const formatted = {
+                    _id: d._id,
+                    policyId: d.policyId,
+                    policyNumber: d.policyNumber,
+                    status: d.status,
+                    productName: d.productName,
                     coveragePeriod: {
-                        startDate: insurance.coveragePeriod.startDate.toISOString().split('T')[0],
-                        endDate: insurance.coveragePeriod.endDate.toISOString().split('T')[0]
+                        startDate: start ? start.toISOString().split('T')[0] : null,
+                        endDate: end ? end.toISOString().split('T')[0] : null
                     },
                     beneficiary: {
-                        name: insurance.beneficiary.name,
-                        email: insurance.beneficiary.email,
-                        birthDate: insurance.beneficiary.birthDate.toISOString().split('T')[0],
-                        documentNumber: insurance.beneficiary.documentNumber,
-                        residenceCountry: insurance.beneficiary.residenceCountry
+                        name: d?.beneficiary?.name || null,
+                        email: d?.beneficiary?.email || null,
+                        birthDate: birth ? birth.toISOString().split('T')[0] : null,
+                        documentNumber: d?.beneficiary?.documentNumber || null,
+                        residenceCountry: d?.beneficiary?.residenceCountry || null
                     },
-                    duration: insurance.duration,
-                    coverage: insurance.coverage,
-                    docUrl: insurance.docUrl,
-                    createdAt: insurance.createdAt.toISOString().split('T')[0]
+                    duration: d.duration ?? null,
+                    coverage: d.coverage ?? null,
+                    docUrl: d.docUrl || null,
+                    createdAt: d.createdAt ? new Date(d.createdAt).toISOString().split('T')[0] : null
                 };
 
-                // Add cancelDate if present
-                if (insurance.cancelDate) {
-                    formattedPolicy.cancelDate = insurance.cancelDate.toISOString().split('T')[0];
+                if (d.cancelDate) {
+                    const c = new Date(d.cancelDate);
+                    formatted.cancelDate = c.toISOString().split('T')[0];
                 }
-
-                return formattedPolicy;
+                return formatted;
             });
 
             return {
                 email: userEmail,
-                activePolicies: activePolicies,
+                activePolicies,
                 policies: formattedPolicies
             };
-
         } catch (error) {
             throw logError('getFormattedUserInsurances', error, { userId });
         }
     }
 
     /**
-     * Update insurance status
-     * @param {string} insuranceId - Insurance ID
-     * @param {string} status - New status
-     * @param {string} userId - User ID (for authorization)
-     * @returns {Promise<Object>} Updated insurance record
+     * Update insurance STATUS only (still insurance-only)
      */
-    async updateInsuranceStatus(insuranceId, status, userId) {
+    async updateInsuranceStatus(documentId, status, userId) {
         try {
             const validStatuses = ['active', 'expired', 'cancelled'];
             if (!validStatuses.includes(status)) {
                 throw new Error('Invalid status. Must be active, expired, or cancelled');
             }
 
-            const insurance = await Insurance.findOneAndUpdate(
-                { _id: insuranceId, userId },
-                {
-                    status,
-                    ...(status === 'cancelled' && !insurance?.cancelDate ? { cancelDate: new Date() } : {})
-                },
+            // Ensure document belongs to user and is an insurance_policy
+            const doc = await Document.findOne({ _id: documentId, userId, documentType: 'insurance_policy' });
+            if (!doc) throw new Error('Insurance not found');
+
+            const update = { status };
+            if (status === 'cancelled' && !doc.cancelDate) {
+                update.cancelDate = new Date();
+            }
+
+            const updated = await Document.findOneAndUpdate(
+                { _id: documentId, userId },
+                update,
                 { new: true }
             );
 
-            if (!insurance) {
-                throw new Error('Insurance not found');
-            }
-
-            return insurance;
+            if (!updated) throw new Error('Insurance not found');
+            return updated;
         } catch (error) {
-            throw logError('updateInsuranceStatus', error, { insuranceId, status, userId });
+            throw logError('updateInsuranceStatus', error, { documentId, status, userId });
         }
     }
 
     /**
-     * Delete insurance record
-     * @param {string} insuranceId - Insurance ID
-     * @param {string} userId - User ID (for authorization)
-     * @returns {Promise<boolean>} Deletion success
+     * Delete a document (was: deleteInsurance)
      */
-    async deleteInsurance(insuranceId, userId) {
+    async deleteInsurance(documentId, userId) {
         try {
-            const insurance = await Insurance.findOne({ _id: insuranceId, userId });
+            const doc = await Document.findOne({ _id: documentId, userId });
+            if (!doc) throw new Error('Document not found');
 
-            if (!insurance) {
-                throw new Error('Insurance not found');
-            }
-
-            // Delete file from Azure storage
-            if (insurance.azureBlobName) {
+            if (doc.azureBlobName) {
                 try {
-                    await this.uploadService.deleteFile(insurance.azureBlobName);
-                    console.log('Deleted file from Azure storage:', insurance.azureBlobName);
+                    await this.uploadService.deleteFile(doc.azureBlobName);
+                    console.log('Deleted file from Azure storage:', doc.azureBlobName);
                 } catch (fileError) {
                     console.error('Failed to delete file from storage:', fileError);
-                    // Continue with database deletion even if file deletion fails
                 }
             }
 
-            // Delete from database
-            await Insurance.deleteOne({ _id: insuranceId, userId });
-
+            await Document.deleteOne({ _id: documentId, userId });
             return true;
         } catch (error) {
-            throw logError('deleteInsurance', error, { insuranceId, userId });
+            throw logError('deleteInsurance', error, { documentId, userId });
         }
     }
 
     /**
-     * Get insurance statistics for user
-     * @param {string} userId - User ID
-     * @returns {Promise<Object>} Insurance statistics
+     * Insurance stats (insurance_policy only)
      */
     async getInsuranceStats(userId) {
         try {
-            const stats = await Insurance.aggregate([
-                { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+            const stats = await Document.aggregate([
+                { $match: { userId: new mongoose.Types.ObjectId(userId), documentType: 'insurance_policy' } },
                 {
                     $group: {
                         _id: null,
                         totalPolicies: { $sum: 1 },
-                        activePolicies: {
-                            $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] }
-                        },
-                        expiredPolicies: {
-                            $sum: { $cond: [{ $eq: ['$status', 'expired'] }, 1, 0] }
-                        },
-                        cancelledPolicies: {
-                            $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] }
-                        }
+                        activePolicies: { $sum: { $cond: [{ $eq: ['$status', 'active'] }, 1, 0] } },
+                        expiredPolicies: { $sum: { $cond: [{ $eq: ['$status', 'expired'] }, 1, 0] } },
+                        cancelledPolicies: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } }
                     }
                 }
             ]);
 
-            return stats[0] || {
-                totalPolicies: 0,
-                activePolicies: 0,
-                expiredPolicies: 0,
-                cancelledPolicies: 0
-            };
+            return (
+                stats[0] || {
+                    totalPolicies: 0,
+                    activePolicies: 0,
+                    expiredPolicies: 0,
+                    cancelledPolicies: 0
+                }
+            );
         } catch (error) {
             throw logError('getInsuranceStats', error, { userId });
         }
     }
 
-    async updateInsuranceDetails(insuranceId, updateData, userId) {
+    /**
+     * Update normalized insurance fields (insurance-only)
+     */
+    async updateInsuranceDetails(documentId, updateData, userId) {
         try {
-            // First, find the existing insurance record
-            const existingInsurance = await Insurance.findOne({ _id: insuranceId, userId });
+            const existing = await Document.findOne({ _id: documentId, userId, documentType: 'insurance_policy' });
+            if (!existing) throw new Error('Insurance not found');
 
-            if (!existingInsurance) {
-                throw new Error('Insurance not found');
-            }
-
-            // Prepare the update object
             const updateObject = {};
 
-            // Handle basic fields
             if (updateData.policyNumber !== undefined) {
                 updateObject.policyNumber = updateData.policyNumber.toString().trim();
             }
@@ -699,17 +723,14 @@ class InsuranceService {
                 }
                 updateObject.status = updateData.status;
 
-                // Add cancelDate if status is being changed to cancelled and it doesn't exist
-                if (updateData.status === 'cancelled' && !existingInsurance.cancelDate) {
+                if (updateData.status === 'cancelled' && !existing.cancelDate) {
                     updateObject.cancelDate = new Date();
                 }
             }
 
             if (updateData.duration !== undefined) {
                 const duration = Number(updateData.duration);
-                if (isNaN(duration) || duration <= 0) {
-                    throw new Error('Duration must be a positive number');
-                }
+                if (isNaN(duration) || duration <= 0) throw new Error('Duration must be a positive number');
                 updateObject.duration = duration;
             }
 
@@ -717,35 +738,27 @@ class InsuranceService {
                 updateObject.coverage = updateData.coverage.toString().trim();
             }
 
-            // Handle coverage period updates
             if (updateData.coveragePeriod) {
                 const coveragePeriod = {};
 
                 if (updateData.coveragePeriod.startDate !== undefined) {
                     const startDate = new Date(updateData.coveragePeriod.startDate);
-                    if (isNaN(startDate.getTime())) {
-                        throw new Error('Invalid coverage start date format');
-                    }
+                    if (isNaN(startDate.getTime())) throw new Error('Invalid coverage start date format');
                     coveragePeriod.startDate = startDate;
                 }
 
                 if (updateData.coveragePeriod.endDate !== undefined) {
                     const endDate = new Date(updateData.coveragePeriod.endDate);
-                    if (isNaN(endDate.getTime())) {
-                        throw new Error('Invalid coverage end date format');
-                    }
+                    if (isNaN(endDate.getTime())) throw new Error('Invalid coverage end date format');
                     coveragePeriod.endDate = endDate;
                 }
 
-                // Validate that start date is before end date
-                const finalStartDate = coveragePeriod.startDate || existingInsurance.coveragePeriod.startDate;
-                const finalEndDate = coveragePeriod.endDate || existingInsurance.coveragePeriod.endDate;
-
+                const finalStartDate = coveragePeriod.startDate || existing.coveragePeriod.startDate;
+                const finalEndDate = coveragePeriod.endDate || existing.coveragePeriod.endDate;
                 if (finalStartDate >= finalEndDate) {
                     throw new Error('Coverage start date must be before end date');
                 }
 
-                // Use dot notation for nested updates
                 if (coveragePeriod.startDate !== undefined) {
                     updateObject['coveragePeriod.startDate'] = coveragePeriod.startDate;
                 }
@@ -754,76 +767,55 @@ class InsuranceService {
                 }
             }
 
-            // Handle beneficiary updates
             if (updateData.beneficiary) {
                 if (updateData.beneficiary.name !== undefined) {
                     updateObject['beneficiary.name'] = updateData.beneficiary.name.toString().trim();
                 }
-
                 if (updateData.beneficiary.email !== undefined) {
                     const email = updateData.beneficiary.email.toString().toLowerCase().trim();
-                    // Basic email validation
                     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
                     if (!emailRegex.test(email)) {
                         throw new Error('Invalid email format');
                     }
                     updateObject['beneficiary.email'] = email;
                 }
-
                 if (updateData.beneficiary.birthDate !== undefined) {
                     const birthDate = new Date(updateData.beneficiary.birthDate);
-                    if (isNaN(birthDate.getTime())) {
-                        throw new Error('Invalid beneficiary birth date format');
-                    }
+                    if (isNaN(birthDate.getTime())) throw new Error('Invalid beneficiary birth date format');
                     updateObject['beneficiary.birthDate'] = birthDate;
                 }
-
                 if (updateData.beneficiary.documentNumber !== undefined) {
                     updateObject['beneficiary.documentNumber'] = updateData.beneficiary.documentNumber.toString().trim();
                 }
-
                 if (updateData.beneficiary.residenceCountry !== undefined) {
                     updateObject['beneficiary.residenceCountry'] = updateData.beneficiary.residenceCountry.toString().trim();
                 }
             }
 
-            // Handle cancel date
             if (updateData.cancelDate !== undefined) {
                 if (updateData.cancelDate === null || updateData.cancelDate === '') {
                     updateObject.cancelDate = null;
                 } else {
                     const cancelDate = new Date(updateData.cancelDate);
-                    if (isNaN(cancelDate.getTime())) {
-                        throw new Error('Invalid cancellation date format');
-                    }
+                    if (isNaN(cancelDate.getTime())) throw new Error('Invalid cancellation date format');
                     updateObject.cancelDate = cancelDate;
                 }
             }
 
-            // Check if there are any fields to update
             if (Object.keys(updateObject).length === 0) {
                 throw new Error('No valid fields provided for update');
             }
 
-            // Perform the update
-            const updatedInsurance = await Insurance.findOneAndUpdate(
-                { _id: insuranceId, userId },
+            const updated = await Document.findOneAndUpdate(
+                { _id: documentId, userId },
                 { $set: updateObject },
-                {
-                    new: true,
-                    runValidators: true // Run mongoose validations
-                }
+                { new: true, runValidators: true }
             );
 
-            if (!updatedInsurance) {
-                throw new Error('Insurance not found');
-            }
-
-            console.log('Insurance record updated successfully:', insuranceId);
-            return updatedInsurance;
-
+            if (!updated) throw new Error('Insurance not found');
+            console.log('Insurance record updated successfully:', documentId);
+            return updated;
         } catch (error) {
-            // Handle MongoDB duplicate key errors
             if (error.code === 11000) {
                 if (error.keyPattern && error.keyPattern.policyNumber) {
                     throw new Error(`Insurance policy with number '${updateData?.policyNumber}' already exists`);
@@ -832,40 +824,39 @@ class InsuranceService {
                 throw new Error(`Duplicate value for ${duplicateField}`);
             }
 
-            // Handle MongoDB validation errors
             if (error.name === 'ValidationError') {
-                const validationErrors = Object.values(error.errors).map(err => err.message);
+                const validationErrors = Object.values(error.errors).map((err) => err.message);
                 throw new Error(`Validation failed: ${validationErrors.join(', ')}`);
             }
 
-            // Handle MongoDB cast errors
             if (error.name === 'CastError') {
                 throw new Error(`Invalid data type for field '${error.path}': ${error.message}`);
             }
 
-            // Handle connection errors
             if (error.name === 'MongoNetworkError' || error.name === 'MongoTimeoutError') {
                 throw new Error('Database connection error. Please try again later');
             }
 
-            // If it's already our custom error, re-throw it
-            if (error.message.includes('not found') ||
+            if (
+                error.message.includes('not found') ||
                 error.message.includes('Invalid') ||
                 error.message.includes('must be') ||
                 error.message.includes('already exists') ||
-                error.message.includes('No valid fields')) {
+                error.message.includes('No valid fields')
+            ) {
                 throw error;
             }
 
-            // Log unexpected errors but don't expose internal details
             console.error('Unexpected error in updateInsuranceDetails:', error);
             throw new Error('Failed to update insurance record. Please verify your data and try again');
         }
     }
 
+    /**
+     * Insurance catalog utility (unchanged)
+     */
     async getInsurancesToBuy(type) {
         try {
-            // If no type specified, return available types
             if (!type) {
                 return {
                     success: true,
@@ -877,7 +868,6 @@ class InsuranceService {
                 };
             }
 
-            // Validate insurance type
             const availableTypes = getAllInsuranceTypes();
             if (!availableTypes.includes(type.toLowerCase())) {
                 return {
@@ -890,9 +880,8 @@ class InsuranceService {
                 };
             }
 
-            // Get insurances by type
             const insurances = getInsurancesByType(type.toLowerCase());
-            
+
             return {
                 success: true,
                 message: `${type.charAt(0).toUpperCase() + type.slice(1)} insurances retrieved successfully`,
@@ -903,7 +892,6 @@ class InsuranceService {
                     country: 'Mauritius'
                 }
             };
-
         } catch (error) {
             return {
                 success: false,

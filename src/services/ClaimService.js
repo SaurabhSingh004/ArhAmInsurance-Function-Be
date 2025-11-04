@@ -71,7 +71,7 @@ class ClaimService {
                     const uploadedFiles = await this.uploadService.uploadClaimDocuments(
                         files, 
                         userId, 
-                        insurance.policyId
+                        insurance.policyId || insurance.policyNumber
                     );
 
                     // Format documents for claim schema
@@ -164,7 +164,7 @@ class ClaimService {
             const uploadedFiles = await this.uploadService.uploadClaimDocuments(
                 files, 
                 userId, 
-                insurance.policyId
+                insurance.policyId || insurance.policyNumber
             );
 
             // Format documents for claim schema

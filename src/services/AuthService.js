@@ -384,20 +384,6 @@ This email was sent to ${email}
                     emailVerified: user.emailVerified,
                     phoneVerified: user.phoneVerified
                 },
-                userFeature: {
-                    isPharmacy: user?.isPharmacy,
-                    isInsurance: user?.isInsurance,
-                    isBloodTest: user?.isBloodTest,
-                    isOfflineAccount: user?.isOfflineAccount,
-                    isHealthConnect: user?.isHealthConnect,
-                    isATCoach: user?.isATCoach,
-                    isWorkout: user?.isWorkout,
-                    isFoodScan: user?.isFoodScan,
-                    isGenerateDiet: user?.isGenerateDiet,
-                    isSOS: user?.isSOS,
-                    isSRT: user?.isSRT,
-                    isUploadBloodTestReport: user?.isUploadBloodTestReport,
-                },
                 token: jwtAccessToken
             };
 
@@ -455,20 +441,6 @@ This email was sent to ${email}
                     emailVerified: user.emailVerified,
                     phoneVerified: user.phoneVerified
                 },
-                userFeature: {
-                    isPharmacy: user?.isPharmacy,
-                    isInsurance: user?.isInsurance,
-                    isBloodTest: user?.isBloodTest,
-                    isOfflineAccount: user?.isOfflineAccount,
-                    isHealthConnect: user?.isHealthConnect,
-                    isATCoach: user?.isATCoach,
-                    isWorkout: user?.isWorkout,
-                    isFoodScan: user?.isFoodScan,
-                    isGenerateDiet: user?.isGenerateDiet,
-                    isSOS: user?.isSOS,
-                    isSRT: user?.isSRT,
-                    isUploadBloodTestReport: user?.isUploadBloodTestReport,
-                },
                 token: jwtAccessToken
             };
 
@@ -522,20 +494,6 @@ This email was sent to ${email}
                     emailVerified: user.emailVerified,
                     phoneVerified: user.phoneVerified,
                     profile: user.profile,
-                },
-                userFeature: {
-                    isPharmacy: user?.isPharmacy,
-                    isInsurance: user?.isInsurance,
-                    isBloodTest: user?.isBloodTest,
-                    isOfflineAccount: user?.isOfflineAccount,
-                    isHealthConnect: user?.isHealthConnect,
-                    isATCoach: user?.isATCoach,
-                    isWorkout: user?.isWorkout,
-                    isFoodScan: user?.isFoodScan,
-                    isGenerateDiet: user?.isGenerateDiet,
-                    isSOS: user?.isSOS,
-                    isSRT: user?.isSRT,
-                    isUploadBloodTestReport: user?.isUploadBloodTestReport,
                 },
                 token: jwtAccessToken
             };
@@ -952,22 +910,7 @@ This email was sent to ${email}
                     height: existingUser?.profile.height,
                     weight: existingUser?.profile.weight,
                     emailVerified: existingUser.emailVerified,
-                    phoneVerified: existingUser.phoneVerified,
-                    userFeature: {
-                        isPharmacy: existingUser?.isPharmacy,
-                        isInsurance: existingUser?.isInsurance,
-                        isBloodTest: existingUser?.isBloodTest,
-                        isOfflineAccount: existingUser?.isOfflineAccount,
-                        isHealthConnect: existingUser?.isHealthConnect,
-                        isATCoach: existingUser?.isATCoach,
-                        isWorkout: existingUser?.isWorkout,
-                        isFoodScan: existingUser?.isFoodScan,
-                        isGenerateDiet: existingUser?.isGenerateDiet,
-                        isSOS: existingUser?.isSOS,
-                        isSRT: existingUser?.isSRT,
-                        isUploadBloodTestReport: existingUser?.isUploadBloodTestReport,
-                    },
-
+                    phoneVerified: existingUser.phoneVerified
                 },
                 token: jwtAccessToken
             };
@@ -1071,21 +1014,7 @@ This email was sent to ${email}
                     height: user?.profile.height,
                     weight: user?.profile.weight,
                     emailVerified: user.emailVerified,
-                    phoneVerified: user.phoneVerified,
-                    userFeature: {
-                        isPharmacy: user?.isPharmacy,
-                        isInsurance: user?.isInsurance,
-                        isBloodTest: user?.isBloodTest,
-                        isOfflineAccount: user?.isOfflineAccount,
-                        isHealthConnect: user?.isHealthConnect,
-                        isATCoach: user?.isATCoach,
-                        isWorkout: user?.isWorkout,
-                        isFoodScan: user?.isFoodScan,
-                        isGenerateDiet: user?.isGenerateDiet,
-                        isSOS: user?.isSOS,
-                        isSRT: user?.isSRT,
-                        isUploadBloodTestReport: user?.isUploadBloodTestReport,
-                    },
+                    phoneVerified: user.phoneVerified
                 },
                 token: jwtAccessToken
             };
@@ -1163,13 +1092,7 @@ This email was sent to ${email}
                     height: user?.profile.height,
                     weight: user?.profile.weight,
                     emailVerified: user.emailVerified,
-                    phoneVerified: user.phoneVerified,
-                    userFeature: {
-                        isPharmacy: user?.isPharmacy,
-                        isInsurance: user?.isInsurance,
-                        isBloodTest: user?.isBloodTest,
-                        isOfflineAccount: user?.isOfflineAccount,
-                    },
+                    phoneVerified: user.phoneVerified
                 },
                 token: jwtAccessToken
             };
@@ -1524,20 +1447,6 @@ This email was sent to ${email}
                     emailVerified: user.emailVerified,
                     phoneVerified: user.phoneVerified,
                     profile: user.profile
-                },
-                userFeature: {
-                    isPharmacy: user?.isPharmacy,
-                    isInsurance: user?.isInsurance,
-                    isBloodTest: user?.isBloodTest,
-                    isOfflineAccount: user?.isOfflineAccount,
-                    isHealthConnect: user?.isHealthConnect,
-                    isATCoach: user?.isATCoach,
-                    isWorkout: user?.isWorkout,
-                    isFoodScan: user?.isFoodScan,
-                    isGenerateDiet: user?.isGenerateDiet,
-                    isSOS: user?.isSOS,
-                    isSRT: user?.isSRT,
-                    isUploadBloodTestReport: user?.isUploadBloodTestReport,
                 },
                 token: jwtAccessToken
             };

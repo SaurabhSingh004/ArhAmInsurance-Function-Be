@@ -22,8 +22,8 @@ class GlobalWebSocketManager extends EventEmitter {
      * Initialize global WebSocket connection
      */
     async initialize() {
-        if (this.connectionState === 'connected' && 
-            this.globalConnection && 
+        if (this.connectionState === 'connected' &&
+            this.globalConnection &&
             this.globalConnection.readyState === WebSocket.OPEN) {
             return this.globalConnection;
         }
@@ -67,7 +67,7 @@ class GlobalWebSocketManager extends EventEmitter {
                     this.connectionState = 'connected';
                     this.reconnectAttempts = 0;
                     this.reconnectDelay = 1000;
-                    
+
                     console.log('Global WebSocket connection established');
                     this.setupHeartbeat();
                     this.emit('connected', this.globalConnection);
@@ -81,7 +81,7 @@ class GlobalWebSocketManager extends EventEmitter {
                 this.globalConnection.on('error', (error) => {
                     clearTimeout(connectionTimeout);
                     console.error('Global WebSocket error:', error);
-                    
+
                     if (this.connectionState === 'connecting') {
                         this.connectionState = 'disconnected';
                         this.emit('connection-failed', error);
@@ -96,7 +96,7 @@ class GlobalWebSocketManager extends EventEmitter {
                     console.log(`Global WebSocket closed: ${code} - ${reason}`);
                     this.connectionState = 'disconnected';
                     this.clearHeartbeat();
-                    
+
                     if (!this.isShuttingDown) {
                         this.handleConnectionLoss(new Error(`Connection closed: ${code} - ${reason}`));
                     }
@@ -131,7 +131,7 @@ class GlobalWebSocketManager extends EventEmitter {
             } else {
                 // Fallback: find by user_id and chat_id combination
                 for (const [queryId, queryInfo] of this.pendingQueries) {
-                    if (queryInfo.userId === response.user_id && 
+                    if (queryInfo.userId === response.user_id &&
                         queryInfo.chatId === response.chat_id) {
                         matchingQueryId = queryId;
                         break;
@@ -156,12 +156,12 @@ class GlobalWebSocketManager extends EventEmitter {
     /**
      * Send query using shared connection
      */
-    async sendQuery(userId, chatId, query, timeout = 75000) {
+    async sendQuery(userId, chatId, query, timeout = 95000) {
         // Ensure connection is established
         await this.initialize();
 
         const queryId = `query_${++this.queryCounter}_${Date.now()}`;
-        
+
         return new Promise((resolve, reject) => {
             // Set timeout for query
             const timeoutId = setTimeout(() => {
@@ -229,9 +229,9 @@ class GlobalWebSocketManager extends EventEmitter {
         if (this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-            
+
             console.log(`Attempting to reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-            
+
             setTimeout(async () => {
                 try {
                     await this.connect();
@@ -273,9 +273,9 @@ class GlobalWebSocketManager extends EventEmitter {
     getStatus() {
         return {
             connectionState: this.connectionState,
-            isConnected: this.connectionState === 'connected' && 
-                         this.globalConnection && 
-                         this.globalConnection.readyState === WebSocket.OPEN,
+            isConnected: this.connectionState === 'connected' &&
+                this.globalConnection &&
+                this.globalConnection.readyState === WebSocket.OPEN,
             pendingQueries: this.pendingQueries.size,
             reconnectAttempts: this.reconnectAttempts,
             uptime: this.connectionState === 'connected' ? Date.now() - this.connectedAt : 0
@@ -287,14 +287,14 @@ class GlobalWebSocketManager extends EventEmitter {
      */
     async forceReconnect() {
         console.log('Forcing WebSocket reconnection...');
-        
+
         if (this.globalConnection) {
             this.globalConnection.close(1000, 'Manual reconnect');
         }
-        
+
         this.connectionState = 'disconnected';
         this.reconnectAttempts = 0;
-        
+
         return this.initialize();
     }
 
@@ -304,19 +304,19 @@ class GlobalWebSocketManager extends EventEmitter {
     async shutdown() {
         console.log('Shutting down global WebSocket connection...');
         this.isShuttingDown = true;
-        
+
         // Reject all pending queries
         for (const [queryId, queryInfo] of this.pendingQueries) {
             clearTimeout(queryInfo.timeout);
             queryInfo.reject(new Error('Service shutting down'));
         }
         this.pendingQueries.clear();
-        
+
         // Close connection
         if (this.globalConnection && this.globalConnection.readyState === WebSocket.OPEN) {
             this.globalConnection.close(1000, 'Service shutdown');
         }
-        
+
         this.clearHeartbeat();
         this.connectionState = 'disconnected';
         this.globalConnection = null;
@@ -328,10 +328,10 @@ class GlobalWebSocketManager extends EventEmitter {
 
         try {
             const response = await this.sendQuery(userId, chatId, query);
-            
+
             const answer = response.answer.toLowerCase();
             const isActive = answer.includes('yes') || answer.startsWith('yes');
-            
+
             return {
                 isActive,
                 response: response.answer,
@@ -343,37 +343,139 @@ class GlobalWebSocketManager extends EventEmitter {
     }
 
     async getStructuredInsuranceData(userId, chatId) {
-        const query = `Extract the ACTUAL insurance policy data from the uploaded document and format it as JSON. DO NOT generate sample data - read the real information from the document. Extract these exact fields from the document: {"policyId": "extract actual policy ID from document", "policyNumber": "extract actual policy number from document", "status": "extract actual status from document (active/expired/cancelled)", "productName": "extract actual product name from document", "coveragePeriod": {"startDate": "extract actual start date from document (YYYY-MM-DD)", "endDate": "extract actual end date from document (YYYY-MM-DD)"}, "beneficiary": {"name": "extract actual beneficiary name from document", "email": "extract actual email from document", "birthDate": "extract actual birth date from document (YYYY-MM-DD)", "documentNumber": "extract actual document number from document", "residenceCountry": "extract actual country from document"}, "duration": "calculate actual duration in days between start and end dates", "coverage": "extract actual coverage details from document", "docUrl": "will be provided separately", "createdAt": "extract actual creation/issue date from document (YYYY-MM-DD)"} IMPORTANT: Read the actual text from the uploaded insurance document. Do not make up or generate fake data.`;
+        const query = `
+Return ONLY valid JSON (no prose) matching this schema. Detect the document type first, then extract fields. 
+If a field is missing/unreadable, set null. Use ISO 8601 dates (YYYY-MM-DD). 
+DO NOT fabricate data. Read from the uploaded document only.
+
+{
+  "json_schema_version": "1.0",
+  "documentType": "one of: insurance_policy, insurance_claim, invoice, receipt, id_proof, medical_report, ticket_travel, other",
+  "insuranceCategory": "vehicle | two_wheeler | car | health | travel | flight | life | home | personal_accident | marine | fire | other | null",
+  "normalized": {
+    "policyId": "string|null",
+    "policyNumber": "string|null",
+    "status": "active|expired|cancelled|unknown|null",
+    "productName": "string|null",
+    "coveragePeriod": {
+      "startDate": "YYYY-MM-DD|null",
+      "endDate": "YYYY-MM-DD|null"
+    },
+    "beneficiary": {
+      "name": "string|null",
+      "email": "string|null",
+      "birthDate": "YYYY-MM-DD|null",
+      "documentNumber": "string|null",
+      "residenceCountry": "string|null"
+    },
+    "duration": "number|null",
+    "coverage": "string|null",
+    "cancelDate": "YYYY-MM-DD|null",
+    "premium": "number|null",
+    "currency": "string|null",
+    "insurer": "string|null",
+    "createdAt": "YYYY-MM-DD|null"
+  },
+  "extractedData": {
+    "_freeForm": "Include ALL parsed fields from the document relevant to its type as key-value pairs. This section may contain additional fields beyond 'normalized'."
+  }
+}
+
+Rules:
+- Calculate "normalized.duration" in days when both coveragePeriod.startDate and endDate exist, else null.
+- "documentType" MUST reflect the actual file (e.g., insurance_policy, invoice, etc.).
+- If documentType != "insurance_policy", you MUST still fill "extractedData" and may leave "normalized" fields as null.
+- Output JSON only.
+`;
+
         try {
             const response = await this.sendQuery(userId, chatId, query);
-            
-            let insuranceData;
+
+            // --- Robust JSON extraction (handles fenced code blocks or extra text defensively) ---
+            let payload;
             try {
-                let jsonString = response.answer.trim();
-                
-                if (jsonString.startsWith('```json')) {
-                    jsonString = jsonString.replace(/```json\s*/, '').replace(/```\s*$/, '');
-                } else if (jsonString.startsWith('```')) {
-                    jsonString = jsonString.replace(/```\s*/, '').replace(/```\s*$/, '');
+                let raw = (response?.answer ?? '').trim();
+
+                // Strip code fences if any
+                if (raw.startsWith('```json')) raw = raw.replace(/```json\s*/i, '').replace(/```\s*$/i, '');
+                else if (raw.startsWith('```')) raw = raw.replace(/```\s*/i, '').replace(/```\s*$/i, '');
+
+                // Try direct parse first
+                try {
+                    payload = JSON.parse(raw);
+                } catch {
+                    // Fallback: extract first JSON object with a rudimentary brace matcher
+                    const start = raw.indexOf('{');
+                    const end = raw.lastIndexOf('}');
+                    if (start !== -1 && end !== -1 && end > start) {
+                        const slice = raw.slice(start, end + 1);
+                        payload = JSON.parse(slice);
+                    } else {
+                        throw new Error('No JSON object found');
+                    }
                 }
-                
-                insuranceData = JSON.parse(jsonString);
             } catch (parseError) {
-                console.error('Error parsing insurance data JSON:', parseError);
-                throw new Error('Failed to parse insurance data from AI response');
+                console.error('Error parsing structured document JSON:', parseError, response?.answer);
+                throw new Error('Failed to parse structured document from AI response');
             }
-            
-            if (typeof insuranceData.duration === 'string') {
-                const match = insuranceData.duration.match(/(\d+)/);
-                insuranceData.duration = match ? parseInt(match[1]) : 0;
+
+            // --- Normalize some expectations/safety ---
+            const normalized = payload?.normalized ?? {};
+            const coveragePeriod = normalized?.coveragePeriod ?? {};
+            // If duration came as string like "365 days", coerce to number
+            if (typeof normalized.duration === 'string') {
+                const m = normalized.duration.match(/(\d+)/);
+                normalized.duration = m ? parseInt(m[1], 10) : null;
             }
-            
+
+            // Build a single payload you can persist using the generic Document schema
+            const documentPayload = {
+                userId,
+                chatId,
+                documentType: payload.documentType ?? 'other',
+                insuranceCategory: payload.insuranceCategory ?? null,
+
+                // Storage/source fields to be added by your pipeline (docUrl, azureBlobName) later if needed
+                // docUrl,
+                // azureBlobName,
+
+                processingStatus: 'completed',
+                extractorVersion: 'v1',
+                extractedAt: new Date(),
+                extractedData: payload.extractedData ?? {},
+
+                // Normalized insurance policy fields (safe even if non-insurance because they can be null)
+                policyId: normalized.policyId ?? null,
+                policyNumber: normalized.policyNumber ?? null,
+                status: normalized.status ?? 'unknown',
+                productName: normalized.productName ?? null,
+                coveragePeriod: {
+                    startDate: coveragePeriod.startDate ? new Date(coveragePeriod.startDate) : undefined,
+                    endDate: coveragePeriod.endDate ? new Date(coveragePeriod.endDate) : undefined
+                },
+                beneficiary: {
+                    name: normalized?.beneficiary?.name ?? null,
+                    email: normalized?.beneficiary?.email ?? null,
+                    birthDate: normalized?.beneficiary?.birthDate ? new Date(normalized.beneficiary.birthDate) : undefined,
+                    documentNumber: normalized?.beneficiary?.documentNumber ?? null,
+                    residenceCountry: normalized?.beneficiary?.residenceCountry ?? null
+                },
+                duration: typeof normalized.duration === 'number' ? normalized.duration : null,
+                coverage: normalized.coverage ?? null,
+                cancelDate: normalized.cancelDate ? new Date(normalized.cancelDate) : undefined,
+                premium: typeof normalized.premium === 'number' ? normalized.premium : null,
+                currency: normalized.currency ?? 'INR',
+                insurer: normalized.insurer ?? 'Arham Insurance Brokers Private Limited',
+                // createdAt (doc issue date) from normalized.createdAt if present; your model also has timestamps
+                // You can store it inside extractedData as well if you prefer not to override Mongoose timestamps
+            };
+
             return {
-                insuranceData,
+                insuranceData: documentPayload,
                 fullResponse: response
             };
         } catch (error) {
-            throw logError('getStructuredInsuranceData', error, { userId, chatId });
+            throw logError('getStructuredInsuranceData1', error, { userId, chatId });
         }
     }
 

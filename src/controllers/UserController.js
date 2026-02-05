@@ -20,7 +20,13 @@ class UserController {
                 };
             }
 
-            const result = await User.findById(userId).select('email profile');
+            const result = await User.findById(userId)
+                .select('email profile walletId') // Select the fields from the User table
+                .populate({
+                    path: 'walletId',            // The field that holds the reference
+                    select: 'balance currency'    // Specific fields to get from the Wallet table
+                })
+                .lean();
             return {
                 status: 200,
                 jsonBody: {

@@ -15,6 +15,7 @@ class InsuranceService {
         this.apiKey = 'FTARhQyFxwx4efXbKQe8oa8FQ4OVhm3itTGVJLW1QPxxwL5LP5i7jOI1dK5JGaPeLYZrVRo92yM5XDcPHsfEeZCCXP36uxltrIeHZ58Ux8orG1bAOdiFcf1N8QS23EEM';
     }
 
+
     /**
      * Upload and process ANY document (kept name for backward compatibility).
      * If the documentType is 'insurance_policy', we also run insurance validations.
@@ -538,6 +539,67 @@ class InsuranceService {
             return doc;
         } catch (error) {
             throw logError('getInsuranceById', error, { documentId, userId });
+        }
+    }
+
+    async getActiveCategories(userId) {
+        try {
+            const MASTER_CATEGORIES = [
+                { key: 'health', name: 'Health Insurance' },
+                { key: 'car', name: 'Car Insurance' },
+                { key: 'life', name: 'Life Insurance' },
+                { key: 'two_wheeler', name: 'Two Wheeler Insurance' },
+                { key: 'travel', name: 'Travel Insurance' },
+                { key: 'corporate_health', name: 'Corporate Health' },
+                { key: 'home', name: 'Home Insurance' },
+                { key: 'personal_accident', name: 'Personal Accident' },
+                { key: 'cyber', name: 'Cyber Security' },
+                { key: 'flight', name: 'Flight Insurance' },
+                { key: 'marine', name: 'Marine Insurance' },
+                { key: 'fire', name: 'Fire Insurance' }
+            ];
+            // Ensure we are working with an ObjectId for the query
+            const oUserId = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
+            // 1. Get categories the user actually has in the database
+            const activeKeys = await Document.distinct('insuranceCategory', {
+                userId: oUserId,
+                documentType: 'insurance_policy'
+            });
+
+            // 2. Map active database keys to the formatted response
+            let results = activeKeys
+                .filter(key => key && key !== 'other') // Filter out null/other for the main list
+                .map(key => {
+                    const match = MASTER_CATEGORIES.find(m => m.key === key);
+                    return match ? match : {
+                        key,
+                        name: key.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+                    };
+                });
+
+            // 3. Fill the rest randomly from MASTER_CATEGORIES until we have 5-6
+            if (results.length < 6) {
+                const currentKeys = new Set(results.map(r => r.key));
+
+                // Get categories the user DOES NOT have
+                const availableFillers = MASTER_CATEGORIES.filter(c => !currentKeys.has(c.key));
+
+                // Randomize the filler list
+                const shuffled = availableFillers.sort(() => 0.5 - Math.random());
+
+                // Add up to 6 items total
+                while (results.length < 6 && shuffled.length > 0) {
+                    results.push(shuffled.pop());
+                }
+            }
+
+            // Return exactly 6 items (or 5 if preferred)
+            return results.slice(0, 6);
+
+        } catch (error) {
+            console.error('Error fetching active categories:', error);
+            throw error;
         }
     }
 

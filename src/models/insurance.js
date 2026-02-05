@@ -35,6 +35,7 @@ const documentSchema = new Schema(
         'two_wheeler',
         'car',
         'health',
+        'corporate_health',
         'travel',
         'flight',
         'life',
@@ -45,9 +46,7 @@ const documentSchema = new Schema(
         'group_health',      // Distinct from individual health
         'liability',         // D&O, Professional Indemnity, CGL
         'cyber',             // Cyber security insurance
-        'engineering',       // Contractor's All Risk (CAR), EAR
-        'marine',
-        'fire',              // Standard Fire & Special Perils
+        'engineering',
         'other'
       ]
     },

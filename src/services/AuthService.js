@@ -11,6 +11,7 @@ const { EmailApiService } = require('./EmailApiService');
 const GoalsService = require('../services/GoalsService');
 const BuildFunctionalityService = require('../services/BuildFunctionalityService');
 const jwt_decode = require('jwt-decode');
+const InsuranceQueryService = require('./InsuranceQueryService');
 class AuthService {
 
     static async findUserById(id) {
@@ -270,7 +271,10 @@ This email was sent to ${email}
 
     static async registerUser(userData) {
         try {
-            const { email, password, firstName, lastName, dateOfBirth, gender, age, height, weight, phoneNumber, appName, buildNumber = "1.1.5" } = userData;
+            const { email, password, name, dateOfBirth, gender, age, height, weight, phoneNumber, appName, marital_status, insurance, buildNumber = "1.1.5" } = userData;
+            const nameParts = name.trim().split(/\s+/);
+            const firstName = nameParts[0];
+            const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
             const userExists = await User.findOne({ email: email.toLowerCase() });
             if (userExists) {
                 const responseData = {
@@ -303,6 +307,7 @@ This email was sent to ${email}
                 phoneVerified: true,
                 phoneVerificationCode: null,
                 createdFrom: appName || constants.APP_NAME,
+                availableInsurances: insurance,
                 phoneVerificationExpires: phoneOTP ? new Date(Date.now() + 15 * 60 * 1000) : null, // 15 minutes
                 profile: {
                     firstName: firstName,
@@ -312,64 +317,15 @@ This email was sent to ${email}
                     age: age,
                     height: height,
                     weight: weight,
-                    phoneNumber: phoneNumber
+                    phoneNumber: phoneNumber,
+                    marital_status: marital_status
                 }
             });
-                
+
             // Initialize verification status message
             let verificationMessage = 'User registered successfully';
             let emailSent = false;
             let smsSent = false;
-
-            // Send verification emails/SMS if enabled
-            // if (process.env.ENABLE_VERIFICATION === 'true') {
-            //     // Try to send verification email
-            //     try {
-            //         const emailResult = await this.sendVerificationEmail(email, emailToken);
-            //         if (emailResult.success) {
-            //             emailSent = true;
-            //         } else {
-            //             console.error('Email verification failed:', emailResult.error);
-            //         }
-            //     } catch (emailError) {
-            //         console.error('Email verification sending failed:', emailError.message);
-            //     }
-
-            //     // Send verification SMS if phone number provided
-            //     const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
-            //     if (phoneNumber && phoneOTP) {
-            //         if (buildFeatures && !buildFeatures.isSmsOtpEnabled) {
-            //             user.phoneVerified = true;
-            //             user.phoneVerificationCode = null;
-            //             user.phoneVerificationExpires = null;
-            //             await user.save();
-            //             smsSent = true; // Consider it as sent since it's auto-verified
-            //         } else {
-            //             // Try to send phone verification
-            //             try {
-            //                 const smsResult = await this.sendPhoneVerification(phoneNumber, phoneOTP);
-            //                 if (smsResult && smsResult.success) {
-            //                     smsSent = true;
-            //                 } else {
-            //                     console.error('SMS verification failed:', smsResult ? smsResult.error : 'Unknown error');
-            //                 }
-            //             } catch (smsError) {
-            //                 console.error('SMS verification sending failed:', smsError.message);
-            //             }
-            //         }
-            //     } else {
-            //         smsSent = true; // No SMS needed, so consider it as handled
-            //     }
-
-            //     // Set appropriate message based on what succeeded/failed
-            //     if (!emailSent && !smsSent && phoneNumber && phoneOTP) {
-            //         verificationMessage = 'User registered successfully. Email and SMS verification pending - please try again later';
-            //     } else if (!emailSent) {
-            //         verificationMessage = 'User registered successfully. Email verification pending - please try again later';
-            //     } else if (!smsSent && phoneNumber && phoneOTP && !(buildFeatures && !buildFeatures.isSmsOtpEnabled)) {
-            //         verificationMessage = 'User registered successfully. SMS verification pending - please try again later';
-            //     }
-            // }
 
             const { jwtAccessToken } = await this.generateTokens(user);
 
@@ -464,9 +420,8 @@ This email was sent to ${email}
             if (!user) {
                 throw new Error('Invalid credentials');
             }
-            
-            if(!user.password)
-            {
+
+            if (!user.password) {
                 throw new Error('Password not set');
             }
 
@@ -849,7 +804,7 @@ This email was sent to ${email}
                 // Send verification SMS if phone number provided
                 const buildFeatures = await BuildFunctionalityService.getBuildFunctionality(buildNumber);
                 const isSmsOtpEnabled = (buildFeatures && !buildFeatures.isSmsOtpEnabled) ? true : false;
-                
+
                 // Create new user
                 existingUser = new User({
                     email: profile.email,
@@ -926,7 +881,7 @@ This email was sent to ${email}
             // Extract email and user ID (sub)
             let email = profile?.email;
 
-            if(!email) {
+            if (!email) {
                 const decoded = jwt_decode(credential.identityToken);
                 context.log("decoded identityToken data:", decoded);
                 email = decoded.email;

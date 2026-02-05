@@ -54,6 +54,13 @@ const insuranceRoutes = {
             description: 'Retrieve insurance statistics for the authenticated user'
         },
         {
+            method: 'GET',
+            path: '/insurance/categories',
+            middleware: [authenticateToken],
+            handler: insuranceController.getActiveCategories,
+            description: 'Retrieve insurance statistics for the authenticated user'
+        },
+        {
             method: 'POST',
             path: '/insurance/query/initialize',
             middleware: [authenticateToken],

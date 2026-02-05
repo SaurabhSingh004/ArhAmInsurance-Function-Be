@@ -50,6 +50,9 @@ const profileSchema = new mongoose.Schema({
     lastName: {
         type: String,
     },
+    marital_status: {
+        type: String
+    },
     dateOfBirth: {
         type: String,
     },
@@ -119,6 +122,10 @@ const userSchema = new mongoose.Schema({
         }
     },
     password: {
+        type: String,
+        required: false
+    },
+    availableInsurances: {
         type: String,
         required: false
     },
@@ -200,70 +207,12 @@ const userSchema = new mongoose.Schema({
         required: false,
         default: false
     },
-    isSubscribedOnActofitDevice: {
-        type: Boolean,
-        required: false,
-        default: false
-    },
     SubscriptionDate: {
         type: Date,
         required: false
     },
     subscriptionTransactionId: {
         type: String
-    },
-    workoutId: {
-        type: Schema.Types.ObjectId,
-        ref: 'workoutPlan'
-    },
-    isPharmacy: {
-        type: Boolean,
-        default: false
-    },
-    isBloodTest: {
-        type: Boolean,
-        default: false
-    },
-    isInsurance: {
-        type: Boolean,
-        default: false
-    },
-    isOfflineAccount: {
-        type: Boolean,
-        default: false
-    },
-    // NEW FIELDS ADDED WITH DEFAULT TRUE
-    isHealthConnect: {
-        type: Boolean,
-        default: true
-    },
-    isATCoach: {
-        type: Boolean,
-        default: true
-    },
-    isWorkout: {
-        type: Boolean,
-        default: false
-    },
-    isFoodScan: {
-        type: Boolean,
-        default: true
-    },
-    isGenerateDiet: {
-        type: Boolean,
-        default: true
-    },
-    isSOS: {
-        type: Boolean,
-        default: true
-    },
-    isSRT: {
-        type: Boolean,
-        default: true
-    },
-    isUploadBloodTestReport: {
-        type: Boolean,
-        default: true
     },
     // END OF NEW FIELDS
     pendingDeletion: {
@@ -297,7 +246,7 @@ const userSchema = new mongoose.Schema({
 });
 
 // Pre-save middleware to update auth.isVerified based on email and phone verification
-userSchema.pre('save', function(next) {
+userSchema.pre('save', function (next) {
     // Only update auth.isVerified if both email and phone verification fields exist
     if (this.emailVerified !== undefined && this.phoneVerified !== undefined && this.auth) {
         this.auth.isVerified = this.emailVerified && this.phoneVerified;

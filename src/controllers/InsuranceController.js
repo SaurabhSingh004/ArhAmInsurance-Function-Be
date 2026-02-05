@@ -585,7 +585,7 @@ class InsuranceController {
             const filters = {};
             if (status) filters.status = status;
             if (productName) filters.productName = new RegExp(productName, 'i');
-            if(insuranceCategory) filters.insuranceCategory = insuranceCategory;
+            if (insuranceCategory) filters.insuranceCategory = insuranceCategory;
 
             const formattedData = await InsuranceService.getFormattedUserInsurances(userId, filters);
 
@@ -931,6 +931,53 @@ class InsuranceController {
             };
         }
     }
+
+    getActiveCategories = async (request, context) => {
+        try {
+            // 1. Extract and validate authenticated user
+            const userId = context.user?._id;
+
+            if (!userId) {
+                context.log('Unauthorized access attempt to getActiveCategories');
+                return {
+                    status: 401,
+                    jsonBody: {
+                        success: false,
+                        message: 'User authentication required',
+                        data: null
+                    }
+                };
+            }
+
+            context.log(`Fetching active categories for userId: ${userId}`);
+
+            // 2. Call the service logic
+            const categories = await InsuranceService.getActiveCategories(userId);
+
+            // 3. Return successful response
+            return {
+                status: 200,
+                jsonBody: {
+                    success: true,
+                    message: 'Active categories retrieved successfully',
+                    data: categories,
+                    count: categories.length
+                }
+            };
+
+        } catch (error) {
+            context.error('Error in getActiveCategories controller:', error);
+
+            return {
+                status: error.status || 500,
+                jsonBody: {
+                    success: false,
+                    message: error.message || 'An unexpected error occurred while fetching categories',
+                    data: null
+                }
+            };
+        }
+    };
 
     compareDocuments = async (request, context) => {
         try {

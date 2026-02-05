@@ -53,10 +53,10 @@ class UploadService {
         // Check for required keywords (optional)
         if (requiredKeywords.length > 0) {
             const name = filename.toLowerCase();
-            const hasRequiredKeyword = requiredKeywords.some(keyword => 
+            const hasRequiredKeyword = requiredKeywords.some(keyword =>
                 name.includes(keyword.toLowerCase())
             );
-            
+
             if (!hasRequiredKeyword) {
                 throw new ValidationError(`File ${filename} doesn't contain required keywords: ${requiredKeywords.join(', ')}`);
             }
@@ -119,7 +119,7 @@ class UploadService {
                 allowedTypes: [
                     'application/pdf',
                     'image/jpeg',
-                    'image/jpg', 
+                    'image/jpg',
                     'image/png',
                     'image/tiff',
                     'image/bmp'
@@ -130,7 +130,7 @@ class UploadService {
 
             // Create unique folder path for user's insurance documents
             const folderPath = `arham-insurance-documents/${userId}`;
-            
+
             // Upload with insurance-specific metadata
             const uploadedFile = await this.uploadRawFile(
                 fileBuffer,
@@ -156,7 +156,7 @@ class UploadService {
     async uploadClaimDocuments(files, userId, policyId) {
         try {
             const uploadedFiles = [];
-            
+
             if (!Array.isArray(files) || files.length === 0) {
                 throw new ValidationError('Files array is required and cannot be empty');
             }
@@ -183,7 +183,7 @@ class UploadService {
 
                 // Create unique folder path for claim documents
                 const folderPath = `arham-claim-documents/${userId}/${policyId}`;
-                
+
                 // Upload with claim-specific metadata
                 const uploadedFile = await this.uploadRawFile(
                     file.buffer,
@@ -209,17 +209,61 @@ class UploadService {
         }
     }
 
+    /**
+     * Specific method for user profile media (profile photo, banner photo)
+     * @param {Object} file - File object {buffer, filename, contentType}
+     * @param {string} userId - User ID
+     * @param {string} type - 'profile' or 'banner'
+     * @returns {Promise<Object>} Uploaded file details
+     */
+    async uploadUserProfileMedia(file, userId, type = 'profile') {
+        try {
+            // Validate image requirements
+            this.validateRawFile(file.buffer, file.filename, file.contentType, {
+                allowedTypes: [
+                    'image/jpeg',
+                    'image/jpg',
+                    'image/png',
+                    'image/webp'
+                ],
+                maxFileSize: 5 * 1024 * 1024, // 5MB for profile photos
+            });
+
+            // Create folder path for user's profile media
+            const folderPath = `user-profiles/${userId}`;
+
+            // Upload with profile-specific metadata
+            const uploadedFile = await this.uploadRawFile(
+                file.buffer,
+                file.filename,
+                file.contentType,
+                userId,
+                folderPath,
+                {
+                    documentType: `user-${type}-photo`,
+                    uploadedBy: 'user',
+                    company: 'Arham Insurance Brokers',
+                    companyCode: 'AIBL'
+                }
+            );
+
+            return uploadedFile;
+        } catch (error) {
+            throw new Error(`User profile media upload failed: ${error.message}`);
+        }
+    }
+
     // Method to get file content for AI processing
     async getFileContent(blobName) {
         try {
             const blockBlobClient = this.containerClient.getBlockBlobClient(blobName);
             const downloadResponse = await blockBlobClient.download();
-            
+
             const chunks = [];
             for await (const chunk of downloadResponse.readableStreamBody) {
                 chunks.push(chunk);
             }
-            
+
             return Buffer.concat(chunks);
         } catch (error) {
             throw new Error(`Failed to download file content: ${error.message}`);
@@ -322,7 +366,7 @@ class UploadService {
     // Batch delete files
     async deleteMultipleFiles(blobNames) {
         const results = [];
-        
+
         for (const blobName of blobNames) {
             try {
                 const success = await this.deleteFile(blobName);
@@ -331,7 +375,7 @@ class UploadService {
                 results.push({ blobName, success: false, error: error.message });
             }
         }
-        
+
         return results;
     }
 
@@ -340,10 +384,10 @@ class UploadService {
         try {
             const sourceBlockBlobClient = this.containerClient.getBlockBlobClient(sourceBlobName);
             const destinationBlockBlobClient = this.containerClient.getBlockBlobClient(destinationBlobName);
-            
+
             const copyOperation = await destinationBlockBlobClient.startCopyFromURL(sourceBlockBlobClient.url);
             await copyOperation.pollUntilDone();
-            
+
             return destinationBlockBlobClient.url;
         } catch (error) {
             throw new Error(`Failed to copy file from ${sourceBlobName} to ${destinationBlobName}: ${error.message}`);
@@ -356,15 +400,15 @@ class UploadService {
             let totalSize = 0;
             let fileCount = 0;
             const fileTypes = {};
-            
+
             for await (const blob of this.containerClient.listBlobsFlat()) {
                 totalSize += blob.properties.contentLength || 0;
                 fileCount++;
-                
+
                 const contentType = blob.properties.contentType || 'unknown';
                 fileTypes[contentType] = (fileTypes[contentType] || 0) + 1;
             }
-            
+
             return {
                 totalSize,
                 fileCount,
@@ -380,13 +424,13 @@ class UploadService {
     // Utility function to format bytes
     formatBytes(bytes, decimals = 2) {
         if (bytes === 0) return '0 Bytes';
-        
+
         const k = 1024;
         const dm = decimals < 0 ? 0 : decimals;
         const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-        
+
         const i = Math.floor(Math.log(bytes) / Math.log(k));
-        
+
         return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
     }
 
@@ -394,10 +438,10 @@ class UploadService {
     async uploadMultipleFiles(files, userId, folderPath = 'general', metadata = {}) {
         try {
             const uploadedFiles = [];
-            
+
             for (const file of files) {
                 this.validateRawFile(file.buffer, file.filename, file.contentType);
-                
+
                 const uploadedFile = await this.uploadRawFile(
                     file.buffer,
                     file.filename,
@@ -406,10 +450,10 @@ class UploadService {
                     folderPath,
                     metadata
                 );
-                
+
                 uploadedFiles.push(uploadedFile);
             }
-            
+
             return uploadedFiles;
         } catch (error) {
             throw new Error(`Batch upload failed: ${error.message}`);

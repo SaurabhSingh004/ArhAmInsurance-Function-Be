@@ -1,13 +1,17 @@
 const User = require('../models/userProfile');
 const userService = require('../services/UserService');
-const {logError} = require('../utils/logError');
+const { logError } = require('../utils/logError');
+const UploadService = require('../services/UploadService');
 
 class UserController {
+    constructor() {
+        this.uploadService = new UploadService();
+    }
 
     getUserRespondedInfo = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 context.log("No user ID found in request");
                 return {
@@ -15,7 +19,7 @@ class UserController {
                     jsonBody: { message: "User not authenticated" }
                 };
             }
-            
+
             const result = await User.findById(userId);
             return {
                 status: 200,
@@ -41,7 +45,7 @@ class UserController {
     getUserData = async (request, context) => {
         try {
             const { userId } = request.params || {};
-            
+
             if (!userId) {
                 return {
                     status: 400,
@@ -51,7 +55,7 @@ class UserController {
                     }
                 };
             }
-            
+
             const result = await User.findById(userId);
             return {
                 status: 200,
@@ -77,7 +81,7 @@ class UserController {
     getProfile = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -96,7 +100,7 @@ class UserController {
                     }
                 };
             }
-            
+
             return {
                 status: 200,
                 jsonBody: {
@@ -120,7 +124,7 @@ class UserController {
     getAllUsers = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -194,7 +198,7 @@ class UserController {
     toggleUserBooleanField = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -240,7 +244,7 @@ class UserController {
     updateProfile = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -248,7 +252,53 @@ class UserController {
                 };
             }
 
-            const updateData = await request.json() || {};
+            let updateData = {};
+
+            // Check if it's a multipart request (handled by router)
+            if (request.formData) {
+                updateData = { ...request.formData };
+                context.log('Using formData for update:', Object.keys(updateData));
+            } else {
+                updateData = await request.json() || {};
+                context.log('Using JSON for update:', Object.keys(updateData));
+            }
+
+            // Handle file uploads if present
+            if (request.files && Object.keys(request.files).length > 0) {
+                context.log('Processing files for profile update:', Object.keys(request.files));
+
+                // Process profile photo
+                if (request.files.profilePhoto) {
+                    const profileFile = request.files.profilePhoto;
+                    const uploadResult = await this.uploadService.uploadUserProfileMedia(
+                        {
+                            buffer: profileFile.data || profileFile.buffer,
+                            filename: profileFile.name || profileFile.originalname,
+                            contentType: profileFile.mimetype
+                        },
+                        userId,
+                        'profile'
+                    );
+                    updateData.profilePhoto = uploadResult.url;
+                    context.log('Profile photo uploaded:', uploadResult.url);
+                }
+
+                // Process banner photo
+                if (request.files.bannerPhoto) {
+                    const bannerFile = request.files.bannerPhoto;
+                    const uploadResult = await this.uploadService.uploadUserProfileMedia(
+                        {
+                            buffer: bannerFile.data || bannerFile.buffer,
+                            filename: bannerFile.name || bannerFile.originalname,
+                            contentType: bannerFile.mimetype
+                        },
+                        userId,
+                        'banner'
+                    );
+                    updateData.bannerPhoto = uploadResult.url;
+                    context.log('Banner photo uploaded:', uploadResult.url);
+                }
+            }
 
             if (Object.keys(updateData).length === 0) {
                 return {
@@ -286,7 +336,7 @@ class UserController {
     searchSubscribedUser = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -312,7 +362,7 @@ class UserController {
                 ];
             }
             filters.isSubscribed = true;
-            
+
             const result = await userService.searchUsers(
                 filters,
                 parseInt(page),
@@ -345,7 +395,7 @@ class UserController {
     searchUsers = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -381,21 +431,21 @@ class UserController {
                     { 'profile.lastName': { $regex: `.*${q}.*`, $options: 'i' } }
                 ];
             }
-            
+
             if (firstName) filters['profile.firstName'] = { $regex: firstName, $options: 'i' };
             if (lastName) filters['profile.lastName'] = { $regex: lastName, $options: 'i' };
-            
+
             const startDateObj = startDate ? new Date(startDate) : null;
             const endDateObj = endDate ? new Date(endDate) : null;
             const dateFieldName = dateField === 'updatedAt' ? 'updatedAt' : 'createdAt';
-            
+
             if (startDateObj || endDateObj) {
                 filters[dateFieldName] = {};
-                
+
                 if (startDateObj) {
                     filters[dateFieldName].$gte = startDateObj;
                 }
-                
+
                 if (endDateObj) {
                     const nextDay = new Date(endDateObj);
                     nextDay.setDate(nextDay.getDate() + 1);
@@ -448,7 +498,7 @@ class UserController {
     getSubscribedUsersWithPagination = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 return {
                     status: 401,
@@ -468,13 +518,13 @@ class UserController {
             } = request.query || {};
 
             const skip = (parseInt(page) - 1) * parseInt(limit);
-            
+
             const startDateObj = startDate ? new Date(startDate) : null;
             const endDateObj = endDate ? new Date(endDate) : null;
             const dateFieldName = dateField === 'updatedAt' ? 'SubscriptionDate' : 'SubscriptionDate';
-            
+
             const filters = {};
-    
+
             if (q) {
                 filters.$or = [
                     { email: { $regex: `.*${q}.*`, $options: 'i' } },
@@ -482,48 +532,48 @@ class UserController {
                     { 'profile.lastName': { $regex: `.*${q}.*`, $options: 'i' } }
                 ];
             }
-            
+
             if (startDateObj || endDateObj) {
                 filters[dateFieldName] = {};
-                
+
                 if (startDateObj) {
                     filters[dateFieldName].$gte = startDateObj;
                 }
-                
+
                 if (endDateObj) {
                     const nextDay = new Date(endDateObj);
                     nextDay.setDate(nextDay.getDate() + 1);
                     filters[dateFieldName].$lt = nextDay;
                 }
             }
-            
+
             filters.isSubscribed = true;
-            
+
             const validSortFields = [
                 'email', 'createdAt', 'updatedAt', 'isAdmin', 'isSubscribed'
             ];
             const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
             const sort = {};
             sort[sortField] = sortOrder === 'asc' ? 1 : -1;
-            
+
             const subscribedUsers = await User.find(filters)
                 .select('_id email profile.firstName profile.lastName SubscriptionDate createdAt updatedAt couponCode')
                 .sort(sort)
                 .skip(skip)
                 .limit(parseInt(limit));
-            
+
             const total = await User.countDocuments(filters);
-            
+
             const transformedUsers = subscribedUsers.map(user => {
                 const userObj = user.toObject ? user.toObject() : user;
-                
+
                 const firstName = userObj.profile?.firstName || '';
                 const lastName = userObj.profile?.lastName || '';
                 const username = `${firstName} ${lastName}`.trim();
-                
+
                 const coupon = userObj.couponCode && userObj.couponCode.trim() ? userObj.couponCode : null;
                 const couponLabel = coupon ? `Coupon: ${coupon}` : 'No coupon applied';
-                
+
                 return {
                     _id: userObj._id,
                     email: userObj.email,
@@ -537,7 +587,7 @@ class UserController {
                     couponLabel: userObj.couponLabel || couponLabel,
                 };
             });
-            
+
             return {
                 status: 200,
                 jsonBody: {

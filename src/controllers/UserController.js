@@ -20,7 +20,7 @@ class UserController {
                 };
             }
 
-            const result = await User.findById(userId);
+            const result = await User.findById(userId).select('email profile');
             return {
                 status: 200,
                 jsonBody: {

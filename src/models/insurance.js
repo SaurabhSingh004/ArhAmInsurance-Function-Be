@@ -42,6 +42,12 @@ const documentSchema = new Schema(
         'personal_accident',
         'marine',
         'fire',
+        'group_health',      // Distinct from individual health
+        'liability',         // D&O, Professional Indemnity, CGL
+        'cyber',             // Cyber security insurance
+        'engineering',       // Contractor's All Risk (CAR), EAR
+        'marine',
+        'fire',              // Standard Fire & Special Perils
         'other'
       ]
     },

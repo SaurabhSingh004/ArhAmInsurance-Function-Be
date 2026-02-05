@@ -560,9 +560,12 @@ class InsuranceService {
      */
     async getFormattedUserInsurances(userId, filters = {}) {
         try {
-            const query = { userId, documentType: 'insurance_policy', ...filters };
+            const query = {
+                userId: new mongoose.Types.ObjectId(userId),
+                documentType: 'insurance_policy',
+                ...filters
+            };
             const insurances = await Document.find(query).sort({ createdAt: -1 }).lean();
-
             const userEmail = insurances.length > 0 ? (insurances[0]?.beneficiary?.email || '') : '';
             const activePolicies = insurances.filter((d) => d.status === 'active').length;
 

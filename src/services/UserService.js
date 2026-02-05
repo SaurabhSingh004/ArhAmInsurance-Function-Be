@@ -5,9 +5,9 @@ const { logError } = require('../utils/logError');
 class UserService {
     static async getProfile(userId) {
         try {
-            const user = await User.findById(userId, { email: 1, profile: 1,isSubscribed: 1, _id: 1 });
-            console.log("user",user);
-            if(!user) {
+            const user = await User.findById(userId, { email: 1, profile: 1, isSubscribed: 1, _id: 1 });
+            console.log("user", user);
+            if (!user) {
                 return null;
             }
             return user;
@@ -27,7 +27,7 @@ class UserService {
         }
 
         // Parse age to integer
-        if(updateData.age) {
+        if (updateData.age) {
             updateData.age = parseInt(updateData.age);
         }
 
@@ -52,7 +52,7 @@ class UserService {
                 'firstName', 'lastName', 'dateOfBirth', 'gender',
                 'age', 'phoneNumber', 'profilePhoto', 'bannerPhoto',
                 'height', 'weight', 'isAthlete', 'address', 'state',
-                'district', 'pincode', 'country', 'countryCode', 'landmark', 'phoneVerificationCode'
+                'district', 'pincode', 'country', 'countryCode', 'landmark', 'phoneVerificationCode', 'marital_status'
             ];
 
             // Create update object with proper dot notation for nested fields
@@ -142,41 +142,41 @@ class UserService {
         }
     }
 
-    static async searchUsers(filters = {}, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc'){
+    static async searchUsers(filters = {}, page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'desc') {
         try {
-          // Validate and prepare sort options
-          const validSortFields = [
-            'email', 'createdAt', 'updatedAt', 'isAdmin',
-            'isPharmacy', 'isBloodTest', 'isInsurance', 'isOfflineAccount', 'isSubscribed'
-          ];
+            // Validate and prepare sort options
+            const validSortFields = [
+                'email', 'createdAt', 'updatedAt', 'isAdmin',
+                'isPharmacy', 'isBloodTest', 'isInsurance', 'isOfflineAccount', 'isSubscribed'
+            ];
 
-          const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
-          const sort = {};
-          sort[sortField] = sortOrder === 'asc' ? 1 : -1;
+            const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+            const sort = {};
+            sort[sortField] = sortOrder === 'asc' ? 1 : -1;
 
-          // Calculate skip for pagination
-          const skip = (page - 1) * limit;
+            // Calculate skip for pagination
+            const skip = (page - 1) * limit;
 
-          // Execute search query with pagination
-          const users = await User.find(filters)
-            .select('-password -emailVerificationToken -phoneVerificationCode')
-            .sort(sort)
-            .skip(skip)
-            .limit(limit)
-            .lean();
+            // Execute search query with pagination
+            const users = await User.find(filters)
+                .select('-password -emailVerificationToken -phoneVerificationCode')
+                .sort(sort)
+                .skip(skip)
+                .limit(limit)
+                .lean();
 
-          // Get total count for pagination info
-          const totalCount = await User.countDocuments(filters);
+            // Get total count for pagination info
+            const totalCount = await User.countDocuments(filters);
 
-          return {
-            users,
-            totalCount
-          };
+            return {
+                users,
+                totalCount
+            };
         } catch (error) {
-          console.error('User search service error:', error);
-          throw new Error(`Failed to search users: ${error.message}`);
+            console.error('User search service error:', error);
+            throw new Error(`Failed to search users: ${error.message}`);
         }
-      }
+    }
 }
 
 module.exports = UserService;

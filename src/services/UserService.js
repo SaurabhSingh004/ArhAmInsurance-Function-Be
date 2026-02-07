@@ -26,9 +26,15 @@ class UserService {
             throw new Error('Invalid user ID');
         }
 
-        // Parse age to integer
+        // Parse numeric fields to integers
         if (updateData.age) {
             updateData.age = parseInt(updateData.age);
+        }
+        if (updateData.phoneNumber) {
+            updateData.phoneNumber = parseInt(updateData.phoneNumber);
+        }
+        if (updateData.pincode) {
+            updateData.pincode = parseInt(updateData.pincode);
         }
 
         // Validate input data

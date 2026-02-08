@@ -7,10 +7,8 @@ const supportTicketSchema = new mongoose.Schema({
     },
     appName: {
         type: String,
-        enum: ['ACTDEV',
-        'ACTWEL',
-        'ARCHEL'],
-        default: 'ACTWEL',
+        enum: ['ARHAMSECURE'],
+        default: 'ARHAMSECURE',
     },
     fullName: {
         type: String,
@@ -34,6 +32,9 @@ const supportTicketSchema = new mongoose.Schema({
         trim: true,
         minlength: [4, 'Message must be at least 10 characters long']
     },
+    category: {
+        type: String
+    },
     status: {
         type: String,
         enum: ['PENDING', 'IN_PROGRESS', 'RESOLVED'],
@@ -50,7 +51,7 @@ const supportTicketSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Generate ticket number before saving
-supportTicketSchema.pre('save', async function(next) {
+supportTicketSchema.pre('save', async function (next) {
     if (this.isNew) {
         const count = await mongoose.model('SupportTicket').countDocuments();
         this.ticketNumber = `TKT${String(count + 1).padStart(6, '0')}`;

@@ -1,13 +1,13 @@
 const SupportTicket = require('../models/supportTicket');
 const { sendSupportEmail } = require('../utils/mailService');
-const {logError} = require('../utils/logError');
+const { logError } = require('../utils/logError');
 
 class SupportTicketController {
 
     createTicket = async (request, context) => {
         try {
             const userId = context.user?._id;
-            
+
             if (!userId) {
                 context.log("No user ID found in request");
                 return {
@@ -16,7 +16,7 @@ class SupportTicketController {
                 };
             }
 
-            const { fullName, emailAddress, message, question, appName } = await request.json() || {};
+            const { fullName, emailAddress, message, question, category, appName = 'ARHAMSECURE' } = await request.json() || {};
 
             // Validate required fields
             if (!fullName || !emailAddress || !message) {
@@ -36,13 +36,14 @@ class SupportTicketController {
                 emailAddress,
                 question,
                 message,
-                appName: appName || 'ACTWEL'
+                category,
+                appName: appName || 'ARHAMSECURE'
             });
 
             await ticket.save();
             const firstName = fullName.split(' ')[0];
             // await sendSupportEmail(firstName, emailAddress,ticket.ticketNumber, question, message );
-            
+
             // Send email notification
             // await sendTicketConfirmation(emailAddress, ticket.ticketNumber);
 
@@ -61,7 +62,7 @@ class SupportTicketController {
 
         } catch (error) {
             context.error('Error creating support ticket:', error);
-            
+
             // Handle validation errors
             if (error.name === 'ValidationError') {
                 const err = logError('createTicket', error, { userId: context.user?._id });
